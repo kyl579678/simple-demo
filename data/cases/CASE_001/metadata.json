@@ -1,0 +1,8 @@
+{
+  "case_id": "CASE_001",
+  "tool": "Inspector-A2",
+  "recipe": "EDGE_SCAN_v3",
+  "lot_id": "LOT-2512-017",
+  "operator": "OP_Lin",
+  "opened_at": "2025-12-01T10:30:00Z"
+}

@@ -1,0 +1,8 @@
+{
+  "case_id": "CASE_002",
+  "tool": "Depo-B1",
+  "recipe": "OX_500nm_v2",
+  "lot_id": "LOT-2512-021",
+  "target_thickness_a": 5000,
+  "spec_range_a": [4900, 5100]
+}

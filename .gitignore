@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+
+# Python
+backend/__pycache__/
+backend/app/__pycache__/
+backend/.venv/
+backend/venv/
+*.pyc
+
+# Env / data
+backend/.env
+data/sessions.json
