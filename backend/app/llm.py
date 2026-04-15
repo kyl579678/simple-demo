@@ -1,10 +1,9 @@
 """LLM client（OpenAI-compatible）+ <think> 段過濾。
 
-🔀 切換到 OpenAI 正牌：編輯 backend/.env
-    LLM_PROVIDER=openai
-    OPENAI_API_KEY=sk-...
-    OPENAI_MODEL=gpt-4o-mini
-重啟 backend 即可，程式碼不用改。
+🔀 切換 provider：編輯 backend/.env 的 LLM_PROVIDER，重啟 backend 即可。
+    LLM_PROVIDER=minimax   →  MiniMax 雲端
+    LLM_PROVIDER=openai    →  OpenAI 正牌（需 OPENAI_API_KEY）
+    LLM_PROVIDER=local     →  本地 LLM 服務（vLLM / Ollama / LM Studio 等，OpenAI-compatible）
 """
 
 from __future__ import annotations
@@ -15,11 +14,20 @@ from openai import AsyncOpenAI
 
 def _get_client() -> tuple[AsyncOpenAI, str]:
     provider = os.getenv("LLM_PROVIDER", "minimax").lower()
+
     if provider == "openai":
         key = os.getenv("OPENAI_API_KEY", "")
         if not key: raise RuntimeError("OPENAI_API_KEY 沒設")
         base = os.getenv("OPENAI_API_BASE", "https://api.openai.com")
         return AsyncOpenAI(api_key=key, base_url=base + "/v1"), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    if provider == "local":
+        # 本地 OpenAI-compatible 服務（例: vLLM / Ollama / LM Studio）
+        # 大多不需真 API key，填任意字串即可；base 例: http://localhost:8000/v1
+        base = os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1")
+        key = os.getenv("LOCAL_API_KEY", "") or "EMPTY"
+        return AsyncOpenAI(api_key=key, base_url=base), os.getenv("LOCAL_MODEL", "gpt-oss-120b")
+
     # MiniMax (default)
     key = os.getenv("MINIMAX_API_KEY", "")
     if not key: raise RuntimeError("MINIMAX_API_KEY 沒設")
