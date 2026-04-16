@@ -1,0 +1,21 @@
+{
+  "recipe_name": "OX_500nm_v2",
+  "version": "2.3",
+  "last_modified": "2025-10-12",
+  "chamber_temp_c": 420,
+  "pressure_mtorr": 2.5,
+  "gas_flow_sccm": {
+    "SiH4": 120,
+    "O2": 180,
+    "N2": 50
+  },
+  "rf_power_w": 350,
+  "duration_s": 425,
+  "target_thickness_a": 5000,
+  "step_sequence": [
+    { "step": 1, "name": "preheat",      "duration_s": 30  },
+    { "step": 2, "name": "gas_stabilize","duration_s": 20  },
+    { "step": 3, "name": "deposition",   "duration_s": 355 },
+    { "step": 4, "name": "purge",        "duration_s": 20  }
+  ]
+}

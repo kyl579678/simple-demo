@@ -1,8 +1,15 @@
 {
   "case_id": "CASE_002",
+  "title": "膜厚均勻度偏移",
   "tool": "Depo-B1",
+  "chamber": "A",
   "recipe": "OX_500nm_v2",
   "lot_id": "LOT-2512-021",
+  "wafer_count": 25,
   "target_thickness_a": 5000,
-  "spec_range_a": [4900, 5100]
+  "spec_range_a": [4900, 5100],
+  "created_at": "2025-12-18",
+  "engineer": "K. Lin",
+  "severity": "medium",
+  "status": "investigating"
 }

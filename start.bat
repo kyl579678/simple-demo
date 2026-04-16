@@ -1,22 +1,23 @@
 @echo off
 REM ────────────────────────────────────────────────────────────
 REM simple_demo 一鍵啟動（Windows）
-REM   backend: http://127.0.0.1:5488  (FastAPI)
-REM   frontend: http://localhost:5174 (Vite)
+REM   只有一個 server：http://localhost:5488/
+REM     - /            → index.html（前端）
+REM     - /api/*       → FastAPI
 REM ────────────────────────────────────────────────────────────
 
 setlocal
 cd /d "%~dp0"
 
-REM 1. 啟動後端（新視窗）
-start "simple_demo backend" cmd /k "cd backend && python -m uvicorn app.main:app --port 5488 --reload"
+REM 啟動 backend（serve 前端 + API）
+start "simple_demo" cmd /k "cd backend && python -m uvicorn app.main:app --port 5488"
 
-REM 2. 啟動前端（新視窗）
-start "simple_demo frontend" cmd /k "npm run dev"
+REM 等一下再開瀏覽器
+timeout /t 2 /nobreak >nul
+start http://localhost:5488/
 
 echo.
-echo Both servers launching in separate windows.
-echo   Backend:  http://127.0.0.1:5488
-echo   Frontend: http://localhost:5174
+echo  simple_demo launching.
+echo    UI + API: http://localhost:5488/
 echo.
 endlocal

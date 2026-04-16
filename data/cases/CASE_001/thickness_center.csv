@@ -1,0 +1,14 @@
+wafer_id,site,thickness_a,within_spec
+W01,C,4993,true
+W02,C,4988,true
+W03,C,4995,true
+W04,C,4991,true
+W05,C,4989,true
+W06,C,4997,true
+W07,C,4984,true
+W08,C,4992,true
+W09,C,4986,true
+W10,C,4994,true
+W15,C,4990,true
+W20,C,4988,true
+W25,C,4993,true

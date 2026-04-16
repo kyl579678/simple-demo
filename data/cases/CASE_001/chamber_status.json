@@ -1,0 +1,25 @@
+{
+  "chamber_id": "Inspector-A2",
+  "snapshot_at": "2025-12-19T16:45:00+08:00",
+  "state": "running",
+  "particle_monitor": {
+    "in_chamber_count_per_m3": 1250,
+    "spec_max": 3000,
+    "status": "ok"
+  },
+  "robot_arm": {
+    "id": "Robot-Arm-R1",
+    "end_effector": "EE-vacuum-pad-v2",
+    "last_pm": "2025-10-28",
+    "pm_interval_days": 30,
+    "days_since_pm": 52,
+    "warning": "overdue_preventive_maintenance",
+    "grip_force_n": 8.4,
+    "nominal_grip_force_n": 6.5,
+    "note": "grip force 偏高，可能是 vacuum pad 老化導致過度壓迫 wafer edge"
+  },
+  "chiller": {
+    "temperature_c": 22.1,
+    "status": "ok"
+  }
+}

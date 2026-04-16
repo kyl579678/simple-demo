@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 import os
-from typing import AsyncIterator
 from openai import AsyncOpenAI
 
 
@@ -35,13 +34,18 @@ def _get_client() -> tuple[AsyncOpenAI, str]:
     return AsyncOpenAI(api_key=key, base_url=base + "/v1"), os.getenv("MINIMAX_MODEL", "MiniMax-M2.7-highspeed")
 
 
-async def chat_stream(messages: list[dict], max_tokens: int = 4096) -> AsyncIterator[str]:
-    """串流 yield 文字 delta，過濾掉 <think>...</think>（reasoning 模型會吐）。"""
+async def chat_complete(messages: list[dict], max_tokens: int = 4096) -> str:
+    """取得完整回應字串，過濾掉 <think>...</think>（reasoning 模型會吐）。
+
+    內部仍用 stream=True 收集，純粹是為了好做 <think> 過濾；
+    串流呈現已移到前端用打字機動畫模擬。
+    """
     client, model = _get_client()
     stream = await client.chat.completions.create(
         model=model, messages=messages, max_tokens=max_tokens, stream=True,
     )
 
+    parts: list[str] = []
     in_think = False
     pending = ""
     OPEN, CLOSE = "<think>", "</think>"
@@ -65,15 +69,17 @@ async def chat_stream(messages: list[dict], max_tokens: int = 4096) -> AsyncIter
             else:
                 idx = pending.find(OPEN)
                 if idx >= 0:
-                    if idx > 0: yield pending[:idx]
+                    if idx > 0: parts.append(pending[:idx])
                     pending = pending[idx + len(OPEN):]
                     in_think = True
                     continue
                 keep = len(OPEN) - 1
                 if len(pending) > keep:
-                    yield pending[:-keep]
+                    parts.append(pending[:-keep])
                     pending = pending[-keep:]
                 break
 
     if not in_think and pending:
-        yield pending
+        parts.append(pending)
+
+    return "".join(parts)

@@ -1,0 +1,31 @@
+{
+  "_comment": "全域 manifest：所有 case 共用。每個 case 遵守相同檔名 convention 才能讓這份設定生效。",
+  "always_load": ["summary.md", "metadata.json"],
+  "groups": [
+    {
+      "label": "膜厚量測",
+      "pattern": "thickness_*.csv",
+      "keywords": ["膜厚", "厚度", "thickness", "thk", "uniformity", "均勻", "center-to-edge", "c2e"]
+    },
+    {
+      "label": "邊緣 / 缺陷",
+      "pattern": "edge_*.csv",
+      "keywords": ["邊緣", "edge", "particle", "缺陷", "defect", "scan", "巡檢", "異物"]
+    },
+    {
+      "label": "SPC 歷史",
+      "pattern": "spc_*.csv",
+      "keywords": ["SPC", "歷史", "history", "趨勢", "trend", "漂移", "drift", "cpk", "OOC", "control chart"]
+    },
+    {
+      "label": "製程參數",
+      "pattern": "recipe_*.json",
+      "keywords": ["配方", "recipe", "參數", "param", "設定", "步驟", "step", "deposition time"]
+    },
+    {
+      "label": "機台狀態",
+      "pattern": "chamber_*.json",
+      "keywords": ["chamber", "機台", "設備", "tool", "溫度", "壓力", "温度", "sensor", "showerhead", "susceptor", "robot", "arm", "手臂", "end effector", "end_effector", "PM", "maintenance"]
+    }
+  ]
+}

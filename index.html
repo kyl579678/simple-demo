@@ -1,18 +1,1072 @@
 <!doctype html>
 <html lang="zh-Hant">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Doctor — UI Demo</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Doctor</title>
+<style>
+  /* ═══════════════ Design tokens（仿 DefectAiDoctor 原版色票） ═══════════════ */
+  :root {
+    --paper:        #f8fafc;
+    --paper-raised: #ffffff;
+    --paper-muted:  #f1f5f9;
+
+    --ink:          #0f172a;
+    --ink-muted:    #475569;
+    --ink-subtle:   #94a3b8;
+
+    --line:         #e2e8f0;
+    --line-strong:  #cbd5e1;
+
+    --accent:       #3b82f6;
+    --accent-dark:  #2563eb;
+
+    --amber-50:     #fffbeb;
+    --amber-200:    #fde68a;
+    --amber-300:    #fcd34d;
+    --amber-500:    #f59e0b;
+    --amber-700:    #b45309;
+
+    --emerald-50:   #ecfdf5;
+    --emerald-200:  #a7f3d0;
+    --emerald-700:  #047857;
+
+    --red-50:       #fef2f2;
+    --red-500:      #ef4444;
+
+    --shadow-soft:  0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 1px rgba(15, 23, 42, 0.02);
+  }
+
+  /* ═══════════════ Reset ═══════════════ */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  button:disabled { cursor: not-allowed; }
+  textarea { font: inherit; color: inherit; }
+  code { font-family: "JetBrains Mono", "Consolas", monospace; font-size: 0.92em; }
+
+  /* ═══════════════ Layout ═══════════════ */
+  .app { display: flex; height: 100vh; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* Chat / Canvas split（header 下方） */
+  .split-view { flex: 1; display: flex; min-height: 0; }
+  .chat-col   { flex: 3; display: flex; flex-direction: column; min-width: 0; }
+  .canvas-col { flex: 2; min-width: 320px; display: flex; flex-direction: column;
+                border-left: 1px solid var(--line); background: var(--paper-raised); }
+
+  .canvas-header {
+    height: 44px; padding: 0 16px; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--ink);
+  }
+  .canvas-header-count { color: var(--ink-subtle); font-weight: 500; font-size: 12px; }
+  .canvas-header-groups { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; margin-left: 4px; }
+  .canvas-group-chip {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--amber-50); color: var(--amber-700); border: 1px solid var(--amber-200);
+  }
+
+  .canvas-body {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .canvas-empty {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-subtle); font-size: 13px; text-align: center; padding: 24px;
+    line-height: 1.6;
+  }
+
+  .file-card {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden; box-shadow: var(--shadow-soft);
+  }
+  .file-card-head {
+    padding: 8px 12px; background: var(--paper-muted); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--ink);
+    cursor: pointer; user-select: none;
+  }
+  .file-card-head:hover { background: var(--paper-sunk); }
+  .file-card-name { flex: 1; font-family: "JetBrains Mono", "Consolas", monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-card-chevron { transition: transform 0.15s; color: var(--ink-subtle); }
+  .file-card.collapsed .file-card-chevron { transform: rotate(-90deg); }
+  .file-card.collapsed .file-card-body { display: none; }
+
+  .file-card-body { padding: 10px 12px; font-size: 12px; max-height: 400px; overflow-y: auto; }
+  .file-card-body pre {
+    margin: 0; white-space: pre-wrap; word-break: break-word;
+    font-family: "JetBrains Mono", "Consolas", monospace; font-size: 12px; line-height: 1.6;
+    color: var(--ink);
+  }
+  .file-card-body .md-md-root { line-height: 1.6; font-size: 13px; }
+  .file-card-body .md-md-root h1 { font-size: 16px; }
+  .file-card-body .md-md-root h2 { font-size: 15px; }
+  .file-card-body .md-md-root h3 { font-size: 14px; }
+
+  /* Canvas toggle 按鈕（在 header 上） */
+  .canvas-toggle {
+    padding: 4px; border-radius: 6px; color: var(--ink-muted);
+    transition: background-color 0.15s, color 0.15s;
+    display: flex; align-items: center;
+  }
+  .canvas-toggle:hover { color: var(--ink); background: var(--paper-muted); }
+  .canvas-toggle.on { color: var(--accent); }
+
+  /* ═══════════════ Icons ═══════════════ */
+  .icon { width: 16px; height: 16px; stroke-width: 2; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .icon-sm { width: 12px; height: 12px; }
+  .icon-md { width: 18px; height: 18px; }
+  .icon-lg { width: 20px; height: 20px; }
+
+  /* ═══════════════ Sidebar ═══════════════ */
+  .sidebar { background: rgba(241, 245, 249, 0.6); border-right: 1px solid var(--line); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-rail { width: 48px; align-items: center; padding-top: 16px; gap: 12px; }
+  .sidebar-full { width: 256px; }
+
+  .rail-btn, .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    border-radius: 8px; transition: background-color 0.15s, color 0.15s;
+    color: var(--ink-muted);
+  }
+  .rail-btn { width: 32px; height: 32px; justify-content: center; }
+  .rail-btn:hover, .nav-item:hover { color: var(--ink); background: var(--paper-muted); }
+  .rail-btn.active, .nav-item.active { background: var(--paper-raised); color: var(--ink); border: 1px solid var(--line-strong); }
+  .rail-btn.active { border: 0; }
+
+  .nav-item { width: 100%; padding: 8px 12px; font-size: 13px; font-weight: 500; border: 1px solid transparent; }
+
+  .sidebar-top { display: flex; align-items: center; padding: 16px 12px 8px; }
+  .sidebar-nav { padding: 0 12px 8px; }
+  .sidebar-nav > * + * { margin-top: 1px; }
+
+  .new-chat-btn {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; font-size: 13px; font-weight: 500; color: var(--ink);
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 8px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .new-chat-btn:hover { border-color: var(--line-strong); box-shadow: var(--shadow-soft); }
+
+  .sessions-wrap { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+  .sessions-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-subtle); font-weight: 600; padding: 6px 4px; }
+  .sessions-empty { font-size: 13px; color: var(--ink-subtle); padding: 8px 4px; line-height: 1.5; }
+
+  .session-item { position: relative; display: flex; gap: 6px; padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .session-item:hover { background: rgba(255,255,255,0.6); }
+  .session-item.active { background: var(--paper-raised); border-color: var(--line-strong); }
+  .session-item.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: var(--accent); border-radius: 0 2px 2px 0; }
+
+  .session-body { flex: 1; min-width: 0; padding-left: 4px; }
+  .session-title { font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-item.active .session-title { font-weight: 600; }
+  .session-meta { font-size: 12px; color: var(--ink-subtle); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .session-delete {
+    padding: 4px; border-radius: 4px; opacity: 0; transition: opacity 0.15s, background-color 0.15s; flex-shrink: 0;
+    display: flex; align-items: center; color: var(--ink-subtle);
+  }
+  .session-item:hover .session-delete { opacity: 1; }
+  .session-delete:hover { background: var(--red-50); color: var(--red-500); }
+
+  /* ═══════════════ Header ═══════════════ */
+  .header {
+    position: relative; height: 56px;
+    background: rgba(248, 250, 252, 0.8); backdrop-filter: blur(4px);
+    display: flex; align-items: center; padding: 0 24px; gap: 16px; flex-shrink: 0;
+  }
+  .header::after {
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(to right, transparent, var(--line-strong), transparent);
+  }
+  .header-title { font-size: 18px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; margin: 0; }
+
+  .case-chip {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; background: var(--paper-muted); border-radius: 8px;
+    font-size: 12px; color: var(--ink-muted);
+  }
+  .case-chip-id { font-family: "JetBrains Mono", monospace; font-weight: 600; color: var(--ink); }
+  .case-chip-title { color: var(--ink-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+
+  .spacer { flex: 1; }
+
+  .mode-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    border: 1px solid var(--line); background: var(--paper-raised); color: var(--ink-muted);
+    transition: all 0.15s;
+  }
+  .mode-btn:hover { border-color: var(--line-strong); color: var(--ink); }
+  .mode-btn.knowledge { background: var(--amber-50); border-color: var(--amber-300); color: var(--amber-700); box-shadow: var(--shadow-soft); }
+  .mode-btn-bulb { color: var(--ink-subtle); }
+  .mode-btn.knowledge .mode-btn-bulb { color: var(--amber-500); fill: var(--amber-500); }
+
+  /* ═══════════════ Content area ═══════════════ */
+  .content { flex: 1; overflow-y: auto; background: var(--paper); }
+  .content-inner { max-width: 768px; margin: 0 auto; padding: 24px; }
+
+  /* ═══════════════ Case selector ═══════════════ */
+  .case-selector-header { display: flex; align-items: center; gap: 10px; }
+  .avatar { width: 28px; height: 28px; border-radius: 8px; background: var(--paper-muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--ink-muted); }
+  .case-selector-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .case-selector-body { padding-left: 38px; margin-top: 12px; }
+  .case-selector-prompt { font-size: 14px; color: var(--ink); margin: 0 0 12px; }
+
+  .case-empty-hint { font-size: 13px; color: var(--ink-subtle); background: var(--paper-muted); border-radius: 8px; padding: 12px; line-height: 1.6; }
+  .case-empty-hint code { background: transparent; font-weight: 600; }
+
+  .case-btn {
+    display: block; width: 100%; text-align: left;
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 8px; transition: all 0.2s;
+  }
+  .case-btn:hover { border-color: rgba(59, 130, 246, 0.4); box-shadow: var(--shadow-soft); transform: translateY(-1px); }
+  .case-btn-inner { display: flex; align-items: center; gap: 12px; }
+  .case-btn-icon { width: 36px; height: 36px; border-radius: 8px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--accent); transition: background-color 0.15s; }
+  .case-btn:hover .case-btn-icon { background: rgba(59, 130, 246, 0.2); }
+  .case-btn-body { flex: 1; min-width: 0; }
+  .case-btn-id { font-size: 14px; font-weight: 600; color: var(--ink); font-family: "JetBrains Mono", monospace; }
+  .case-btn-title { font-size: 13px; color: var(--ink-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .case-btn-files { font-size: 12px; color: var(--ink-subtle); margin-top: 2px; }
+
+  .case-more { font-size: 12px; color: var(--ink-subtle); text-align: center; padding-top: 4px; }
+
+  /* ═══════════════ Bubble ═══════════════ */
+  .bubble { display: flex; gap: 12px; margin-bottom: 24px; }
+  .bubble-body { flex: 1; min-width: 0; }
+  .bubble-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .bubble-name { font-size: 13px; font-weight: 600; color: var(--ink); margin: 0; }
+  .bubble-content { font-size: 14px; line-height: 1.7; word-break: break-word; }
+  .bubble-content.is-plain { white-space: pre-wrap; }  /* 打字機動畫中途用純文字 */
+
+  /* ─── Markdown 輸出樣式 ─── */
+  .bubble-content > *:first-child { margin-top: 0; }
+  .bubble-content > *:last-child { margin-bottom: 0; }
+  .bubble-content p { margin: 0 0 10px; }
+  .bubble-content h1, .bubble-content h2, .bubble-content h3,
+  .bubble-content h4, .bubble-content h5, .bubble-content h6 {
+    margin: 16px 0 8px; font-weight: 700; line-height: 1.3;
+  }
+  .bubble-content h1 { font-size: 20px; }
+  .bubble-content h2 { font-size: 17px; }
+  .bubble-content h3 { font-size: 15px; }
+  .bubble-content h4, .bubble-content h5, .bubble-content h6 { font-size: 14px; }
+  .bubble-content ul, .bubble-content ol { margin: 0 0 10px; padding-left: 22px; }
+  .bubble-content li { margin: 2px 0; }
+  .bubble-content strong { font-weight: 700; color: var(--ink); }
+  .bubble-content em { font-style: italic; }
+
+  .md-code {
+    background: var(--paper-muted); padding: 1px 5px; border-radius: 4px;
+    font-family: "JetBrains Mono", "Consolas", monospace; font-size: 0.9em;
+  }
+  .md-pre {
+    background: var(--paper-muted); padding: 10px 12px; border-radius: 8px;
+    overflow-x: auto; margin: 8px 0 12px; border: 1px solid var(--line);
+  }
+  .md-pre code { font-family: "JetBrains Mono", "Consolas", monospace; font-size: 13px; white-space: pre; background: none; padding: 0; }
+
+  .md-table {
+    border-collapse: collapse; margin: 8px 0 12px; font-size: 13px;
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  .md-table th, .md-table td {
+    border: 1px solid var(--line); padding: 6px 12px; text-align: left;
+  }
+  .md-table th { background: var(--paper-muted); font-weight: 600; color: var(--ink); }
+  .md-table tbody tr:nth-child(even) td { background: rgba(241, 245, 249, 0.4); }
+  .bubble-content.user-content { color: var(--ink-muted); }
+
+  .mode-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 500;
+    background: var(--paper-muted); color: var(--ink-subtle); border: 1px solid var(--line);
+  }
+  .mode-badge.knowledge { background: var(--amber-50); color: var(--amber-700); border-color: var(--amber-200); }
+  .mode-badge-bulb { color: var(--ink-subtle); }
+  .mode-badge.knowledge .mode-badge-bulb { color: var(--amber-700); fill: var(--amber-700); }
+
+  .typing-cursor {
+    display: inline-block; width: 6px; height: 16px;
+    background: var(--accent); margin-left: 2px; vertical-align: text-bottom;
+    animation: blink 1s infinite;
+  }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+  .dots { display: flex; gap: 4px; padding-left: 38px; margin-bottom: 24px; }
+  .dots span { width: 6px; height: 6px; background: rgba(59, 130, 246, 0.5); border-radius: 50%; animation: bounce 0.6s infinite alternate; }
+  .dots span:nth-child(2) { animation-delay: 0.15s; }
+  .dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce { 0% { transform: translateY(0); } 100% { transform: translateY(-4px); } }
+
+  /* ═══════════════ Input ═══════════════ */
+  .input-area { border-top: 1px solid var(--line); padding: 16px; background: var(--paper); }
+  .input-inner { max-width: 768px; margin: 0 auto; }
+  .input-box {
+    display: flex; align-items: flex-end; gap: 8px;
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; transition: all 0.15s;
+  }
+  .input-box:hover { border-color: var(--line-strong); }
+  .input-box:focus-within { border-color: rgba(59, 130, 246, 0.4); box-shadow: var(--shadow-soft); }
+  .input-ta {
+    flex: 1; background: transparent; resize: none; outline: none; border: 0;
+    font-size: 14px; color: var(--ink); line-height: 1.6; max-height: 120px;
+  }
+  .input-ta:disabled { opacity: 0.5; }
+  .input-ta::placeholder { color: var(--ink-subtle); }
+  .send-btn {
+    padding: 6px; border-radius: 8px; color: #fff; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; transition: background-color 0.15s;
+    flex-shrink: 0;
+  }
+  .send-btn:hover:not(:disabled) { background: var(--accent-dark); }
+  .send-btn:disabled { opacity: 0.3; }
+
+  /* ═══════════════ Knowledge page ═══════════════ */
+  .kn-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .kn-avatar { width: 36px; height: 36px; border-radius: 8px; background: var(--paper-muted); display: flex; align-items: center; justify-content: center; color: var(--ink-muted); }
+  .kn-title { font-size: 18px; font-weight: 700; color: var(--ink); margin: 0; }
+  .kn-sub { font-size: 13px; color: var(--ink-subtle); margin: 2px 0 0; }
+  .kn-sub .hi { font-weight: 600; color: var(--amber-700); }
+
+  .save-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    border: 1px solid transparent; transition: all 0.15s;
+    background: var(--paper-muted); color: var(--ink-subtle); border-color: var(--line);
+  }
+  .save-btn.dirty { background: var(--accent); color: #fff; border-color: transparent; }
+  .save-btn.dirty:hover { background: var(--accent-dark); }
+  .save-btn.saved { background: var(--emerald-50); color: var(--emerald-700); border-color: var(--emerald-200); }
+  .save-btn:disabled { cursor: not-allowed; }
+
+  .kn-ta {
+    width: 100%; min-height: 60vh;
+    background: var(--paper-raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 16px; font-family: "JetBrains Mono", "Consolas", monospace; font-size: 13px;
+    color: var(--ink); resize: vertical; outline: none; line-height: 1.7;
+    transition: all 0.15s;
+  }
+  .kn-ta:focus { border-color: rgba(59, 130, 246, 0.4); box-shadow: var(--shadow-soft); }
+
+  .kn-foot { font-size: 12px; color: var(--ink-subtle); margin-top: 8px; }
+
+  .kn-loading { font-size: 13px; color: var(--ink-subtle); padding: 48px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div id="app" class="app"></div>
+
+<!-- ═══════════════════ SVG icon sprites（來源：lucide.dev） ═══════════════════ -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <!-- 外層都用 <g>，調用時 <use href="#icon-xxx"/> -->
+  <symbol id="icon-panel-left" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="icon-message-square" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="icon-book-open" viewBox="0 0 24 24"><path d="M12 7v14M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></symbol>
+  <symbol id="icon-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.74c.63.52 1 1.27 1 2.06V18h6v-1.2c0-.79.37-1.54 1-2.06A7 7 0 0 0 12 2z"/></symbol>
+  <symbol id="icon-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+  <symbol id="icon-microscope" viewBox="0 0 24 24"><path d="M6 18h8M3 22h18M14 22a7 7 0 1 0 0-14h-1M9 14h2M8 6h4M13 10V6.5a.5.5 0 0 0-.5-.5h-1M13 6V4a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v2M9 10H6.5a.5.5 0 0 0-.5.5V14"/></symbol>
+  <symbol id="icon-folder-open" viewBox="0 0 24 24"><path d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <symbol id="icon-send" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="icon-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="icon-file-text" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+  <symbol id="icon-panel-right" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></symbol>
+  <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+</svg>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+ *                           State
+ * ════════════════════════════════════════════════════════════════ */
+const state = {
+  view: 'chat',           // 'chat' | 'knowledge'
+  sidebarOpen: true,
+  canvasOpen: true,       // Canvas（右側檔案面板）開/關
+  mode: 'pure',           // 'pure' | 'knowledge'
+  cases: [],
+  sessions: [],
+  currentSessionId: null,
+  currentCaseId: null,
+  messages: [],
+  isBusy: false,          // 等後端 OR 打字機動畫中
+  animatingId: null,      // 目前正在打字機動畫的訊息 id
+  loadedFiles: [],        // Canvas 要顯示的檔案 [{name, content}]
+  matchedGroups: [],      // 上一次命中的 manifest groups（顯示 chip 用）
+};
+
+const uid = () => 'tmp_' + Math.random().toString(36).slice(2, 10);
+const TYPEWRITER_MS = 20;       // 每個 tick 的間隔
+const TYPEWRITER_CHARS = 2;     // 每個 tick 加幾個字
+
+/* ════════════════════════════════════════════════════════════════
+ *                           API
+ * ════════════════════════════════════════════════════════════════ */
+const j = async r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
+const api = {
+  listCases:     ()        => fetch('/api/cases').then(j).then(d => d.cases),
+  listSessions:  ()        => fetch('/api/sessions').then(j).then(d => d.sessions),
+  getSession:    id        => fetch('/api/sessions/' + id).then(j),
+  createSession: ()        => fetch('/api/sessions',     { method: 'POST',   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: '新對話' }) }).then(j),
+  patchSession:  (id, p)   => fetch('/api/sessions/' + id, { method: 'PATCH',  headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p) }).then(j),
+  deleteSession: id        => fetch('/api/sessions/' + id, { method: 'DELETE' }).then(j),
+  getKnowledge:  ()        => fetch('/api/knowledge').then(j).then(d => d.content ?? ''),
+  putKnowledge:  content   => fetch('/api/knowledge',   { method: 'PUT',    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then(j),
+  chat:          (sid, m, mode) => fetch('/api/chat',   { method: 'POST',   headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sid, message: m, mode }) }).then(j),
+};
+
+/* ════════════════════════════════════════════════════════════════
+ *                           DOM helpers
+ * ════════════════════════════════════════════════════════════════ */
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'class')        el.className = v;
+    else if (k === 'text')    el.textContent = v;
+    else if (k === 'html')    el.innerHTML = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
+    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else el.setAttribute(k, v);
+  }
+  for (const c of children.flat()) {
+    if (c === null || c === undefined || c === false) continue;
+    el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  }
+  return el;
+}
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function icon(name, cls = 'icon') {
+  // SVG 元素必須用 createElementNS 建，不然 viewBox 被 HTML 小寫化成 viewbox，無法 render
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', cls);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  const use = document.createElementNS(SVG_NS, 'use');
+  use.setAttribute('href', '#icon-' + name);
+  svg.appendChild(use);
+  return svg;
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *                  Minimal Markdown → HTML
+ *  支援：代碼塊、行內代碼、表格、標題、有/無序清單、粗體、斜體
+ *  打字機動畫中途不要用這個（markdown 切到一半會亂）
+ * ════════════════════════════════════════════════════════════════ */
+function renderMarkdown(src) {
+  if (!src) return '';
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // 先把代碼塊抽出來（保護內部 markdown 字元）
+  const codeBlocks = [];
+  let t = esc(src).replace(/```(\w*)\n?([\s\S]*?)```/g, (_, __, code) => {
+    codeBlocks.push('<pre class="md-pre"><code>' + code.replace(/\n$/, '') + '</code></pre>');
+    return '\u0000CB' + (codeBlocks.length - 1) + '\u0000';
+  });
+
+  // 行內代碼
+  const inlineCodes = [];
+  t = t.replace(/`([^`\n]+)`/g, (_, c) => {
+    inlineCodes.push('<code class="md-code">' + c + '</code>');
+    return '\u0000IC' + (inlineCodes.length - 1) + '\u0000';
+  });
+
+  // 表格：header | separator(|---|) | rows...
+  t = t.replace(/(^|\n)((?:\|[^\n]+\|[ \t]*\n)(?:\|[-:\s|]+\|[ \t]*\n)(?:\|[^\n]+\|[ \t]*\n?)+)/g, (_, pre, block) => {
+    const lines = block.trim().split(/\n/);
+    const cells = l => l.replace(/^\||\|$/g, '').split('|').map(s => s.trim());
+    const header = cells(lines[0]);
+    const rows = lines.slice(2).map(cells);
+    let h = '<table class="md-table"><thead><tr>';
+    header.forEach(c => h += '<th>' + c + '</th>');
+    h += '</tr></thead><tbody>';
+    rows.forEach(r => {
+      h += '<tr>';
+      for (let i = 0; i < header.length; i++) h += '<td>' + (r[i] || '') + '</td>';
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+    return pre + h + '\n';  // 多補 \n 避免下一段落被吃掉
+  });
+
+  // 標題
+  t = t.replace(/^###### (.+)$/gm, '<h6>$1</h6>');
+  t = t.replace(/^##### (.+)$/gm, '<h5>$1</h5>');
+  t = t.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  t = t.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  t = t.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  t = t.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // 清單（有序、無序）
+  t = t.replace(/(^|\n)((?:[-*] .+\n?)+)/g, (_, pre, block) => {
+    const items = block.trim().split(/\n/).map(l => '<li>' + l.replace(/^[-*] /, '') + '</li>').join('');
+    return pre + '<ul class="md-ul">' + items + '</ul>' + '\n';
+  });
+  t = t.replace(/(^|\n)((?:\d+\. .+\n?)+)/g, (_, pre, block) => {
+    const items = block.trim().split(/\n/).map(l => '<li>' + l.replace(/^\d+\. /, '') + '</li>').join('');
+    return pre + '<ol class="md-ol">' + items + '</ol>' + '\n';
+  });
+
+  // 粗體、斜體
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+
+  // 段落：雙換行分 block；非 HTML 起頭的 block 包 <p>，單換行轉 <br>
+  t = t.split(/\n{2,}/).map(b => {
+    b = b.trim();
+    if (!b) return '';
+    if (/^<(h[1-6]|table|ul|ol|pre|blockquote|p|div)/.test(b)) return b;
+    return '<p>' + b.replace(/\n/g, '<br>') + '</p>';
+  }).join('\n');
+
+  // 還原代碼
+  t = t.replace(/\u0000CB(\d+)\u0000/g, (_, i) => codeBlocks[+i]);
+  t = t.replace(/\u0000IC(\d+)\u0000/g, (_, i) => inlineCodes[+i]);
+  return t;
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *                           Render
+ * ════════════════════════════════════════════════════════════════ */
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  app.append(renderSidebar(), renderMain());
+}
+
+/* ─────────── Sidebar ─────────── */
+function renderSidebar() {
+  if (!state.sidebarOpen) {
+    return h('aside', { class: 'sidebar sidebar-rail' },
+      railBtn('panel-left', '展開 Sidebar', () => { state.sidebarOpen = true; render(); }),
+      railBtn('plus', 'New Chat', () => { setView('chat'); newChat(); }),
+      railBtn('message-square', 'Chat', () => setView('chat'), state.view === 'chat'),
+      railBtn('book-open', 'Knowledge', () => setView('knowledge'), state.view === 'knowledge'),
+    );
+  }
+
+  const nav = h('div', { class: 'sidebar-nav' },
+    navItem('message-square', 'Chat', () => setView('chat'), state.view === 'chat'),
+    navItem('book-open', 'Knowledge', () => setView('knowledge'), state.view === 'knowledge'),
+  );
+
+  const children = [
+    h('div', { class: 'sidebar-top' }, railBtn('panel-left', '收合 Sidebar', () => { state.sidebarOpen = false; render(); })),
+    nav,
+  ];
+
+  if (state.view === 'chat') {
+    children.push(
+      h('div', { class: 'sidebar-nav', style: { paddingTop: '12px' } },
+        h('button', { class: 'new-chat-btn', onClick: newChat }, icon('plus'), '  New Chat'),
+      ),
+      h('div', { class: 'sessions-wrap' },
+        h('div', { class: 'sessions-label' }, 'Recent'),
+        state.sessions.length === 0
+          ? h('div', { class: 'sessions-empty', html: '尚無對話紀錄<br>點 New Chat 開始' })
+          : h('div', {}, ...state.sessions.map(renderSessionItem)),
+      ),
+    );
+  }
+
+  return h('aside', { class: 'sidebar sidebar-full' }, ...children);
+}
+
+function renderSessionItem(s) {
+  const active = state.currentSessionId === s.id;
+  const item = h('div', {
+    class: 'session-item' + (active ? ' active' : ''),
+    title: s.title,
+    onClick: () => openSession(s.id),
+  },
+    h('div', { class: 'session-body' },
+      h('div', { class: 'session-title', text: s.title }),
+      h('div', { class: 'session-meta', text: (s.case_id ? s.case_id + ' · ' : '') + s.message_count + ' msg' }),
+    ),
+    h('button', {
+      class: 'session-delete',
+      title: '刪除',
+      onClick: e => {
+        e.stopPropagation();
+        if (confirm('確定刪除這個對話？')) deleteSession(s.id);
+      },
+    }, icon('trash', 'icon icon-sm')),
+  );
+  return item;
+}
+
+function railBtn(iconName, title, onClick, active) {
+  return h('button', {
+    class: 'rail-btn' + (active ? ' active' : ''),
+    title, onClick,
+  }, icon(iconName));
+}
+
+function navItem(iconName, label, onClick, active) {
+  return h('button', {
+    class: 'nav-item' + (active ? ' active' : ''),
+    onClick,
+  }, icon(iconName), label);
+}
+
+/* ─────────── Main (header + content) ─────────── */
+function renderMain() {
+  return h('div', { class: 'main' },
+    renderHeader(),
+    state.view === 'chat' ? renderChat() : renderKnowledge(),
+  );
+}
+
+/* ─────────── Header ─────────── */
+function renderHeader() {
+  const isKn = state.mode === 'knowledge';
+  const caseInfo = state.cases.find(c => c.id === state.currentCaseId);
+
+  return h('header', { class: 'header' },
+    h('h1', { class: 'header-title', text: 'AI Doctor' }),
+    state.currentCaseId && h('div', { class: 'case-chip' },
+      h('span', { class: 'case-chip-id', text: state.currentCaseId }),
+      caseInfo && h('span', { class: 'case-chip-title', text: '· ' + caseInfo.title }),
+    ),
+    h('div', { class: 'spacer' }),
+    h('button', {
+      class: 'mode-btn' + (isKn ? ' knowledge' : ''),
+      title: isKn ? '目前：LLM + Knowledge（點擊切回純 LLM）' : '目前：純 LLM（點擊啟用 Knowledge）',
+      onClick: () => { state.mode = isKn ? 'pure' : 'knowledge'; render(); },
+    },
+      icon('bulb', 'icon mode-btn-bulb'),
+      isKn ? '+ Knowledge' : 'Pure LLM',
+    ),
+    // Canvas 切換鈕（僅 chat view 顯示）
+    state.view === 'chat' && h('button', {
+      class: 'canvas-toggle' + (state.canvasOpen ? ' on' : ''),
+      title: state.canvasOpen ? '收起 Canvas（AI 正在讀的檔案）' : '展開 Canvas',
+      onClick: () => { state.canvasOpen = !state.canvasOpen; render(); },
+    }, icon('panel-right')),
+  );
+}
+
+/* ─────────── Chat ─────────── */
+function renderChat() {
+  const showSelector = !state.currentCaseId && state.messages.length === 0;
+  const last = state.messages[state.messages.length - 1];
+  const showDots = state.isBusy && (!last || last.content === '');
+
+  const content = h('div', { class: 'content' },
+    h('div', { class: 'content-inner', id: 'chat-scroll' },
+      showSelector ? renderCaseSelector() : null,
+      ...state.messages.map(renderBubble),
+      showDots ? h('div', { class: 'dots' }, h('span'), h('span'), h('span')) : null,
+      h('div', { id: 'chat-bottom' }),
+    ),
+  );
+
+  const chatCol = h('div', { class: 'chat-col' }, content, renderInput());
+  const canvas = state.canvasOpen ? renderCanvas() : null;
+
+  return h('div', { class: 'split-view' }, chatCol, canvas);
+}
+
+/* ─────────── Canvas ─────────── */
+function renderCanvas() {
+  const files = state.loadedFiles || [];
+  const groups = state.matchedGroups || [];
+
+  const header = h('div', { class: 'canvas-header' },
+    icon('folder-open'),
+    h('span', { text: '載入檔案' }),
+    h('span', { class: 'canvas-header-count', text: '(' + files.length + ')' }),
+    h('div', { class: 'canvas-header-groups' },
+      ...groups.map(g => h('span', { class: 'canvas-group-chip', text: g })),
+    ),
+  );
+
+  let body;
+  if (files.length === 0) {
+    body = h('div', { class: 'canvas-empty', html:
+      '尚無載入檔案。<br>選定 case 並發問後，<br>系統實際讀到的檔案會顯示在這裡。' });
+  } else {
+    body = h('div', { class: 'canvas-body' }, ...files.map(renderFileCard));
+  }
+
+  return h('aside', { class: 'canvas-col' }, header, body);
+}
+
+function renderFileCard(f) {
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+
+  const body = h('div', { class: 'file-card-body' });
+  if (ext === 'md') {
+    const wrap = document.createElement('div');
+    wrap.className = 'md-md-root';
+    wrap.innerHTML = renderMarkdown(f.content || '');
+    body.appendChild(wrap);
+  } else if (ext === 'json') {
+    let pretty = f.content || '';
+    try { pretty = JSON.stringify(JSON.parse(f.content), null, 2); } catch {}
+    body.appendChild(h('pre', { text: pretty }));
+  } else {
+    body.appendChild(h('pre', { text: f.content || '' }));
+  }
+
+  const card = h('div', { class: 'file-card' });
+  const head = h('div', { class: 'file-card-head' },
+    icon('file-text', 'icon icon-sm'),
+    h('span', { class: 'file-card-name', text: f.name }),
+    icon('chevron-down', 'icon icon-sm file-card-chevron'),
+  );
+  head.addEventListener('click', () => card.classList.toggle('collapsed'));
+  card.append(head, body);
+  return card;
+}
+
+function renderCaseSelector() {
+  const top3 = state.cases.slice(0, 3);
+  const body = h('div', { class: 'case-selector-body' },
+    h('p', { class: 'case-selector-prompt', text: '你好，請選擇要分析的 case：' }),
+  );
+
+  if (top3.length === 0) {
+    body.appendChild(h('div', { class: 'case-empty-hint',
+      html: '<code>data/cases/</code> 目前是空的。<br>請在該目錄下建立子資料夾，放入 .csv / .json / .md 檔。' }));
+  } else {
+    for (const c of top3) {
+      body.appendChild(
+        h('button', { class: 'case-btn', onClick: () => pickCase(c.id) },
+          h('div', { class: 'case-btn-inner' },
+            h('div', { class: 'case-btn-icon' }, icon('folder-open', 'icon icon-md')),
+            h('div', { class: 'case-btn-body' },
+              h('div', { class: 'case-btn-id', text: c.id }),
+              h('div', { class: 'case-btn-title', text: c.title }),
+              h('div', { class: 'case-btn-files', text: c.file_count + ' 個檔案' }),
+            ),
+          ),
+        ),
+      );
+    }
+    if (state.cases.length > 3) {
+      body.appendChild(h('p', { class: 'case-more', text: '（另有 ' + (state.cases.length - 3) + ' 個 case 未顯示）' }));
+    }
+  }
+
+  return h('div', {},
+    h('div', { class: 'case-selector-header' },
+      h('div', { class: 'avatar' }, icon('folder-open')),
+      h('span', { class: 'case-selector-title', text: 'AI Doctor' }),
+    ),
+    body,
+  );
+}
+
+function renderBubble(m) {
+  const isUser = m.role === 'user';
+  const isAnimating = state.animatingId === m.id;
+
+  const header = h('div', { class: 'bubble-header' },
+    h('p', { class: 'bubble-name', text: isUser ? 'You' : 'AI Doctor' }),
+    !isUser && m.mode && h('span', {
+      class: 'mode-badge' + (m.mode === 'knowledge' ? ' knowledge' : ''),
+    },
+      icon('bulb', 'icon icon-sm mode-badge-bulb'),
+      m.mode === 'knowledge' ? '+ Knowledge' : 'Pure LLM',
+    ),
+  );
+
+  // 動畫中或使用者訊息：plain text（white-space: pre-wrap）
+  // 動畫結束的 AI 訊息：渲染 markdown
+  const useMarkdown = !isUser && !isAnimating && m.content;
+  const contentClass = 'bubble-content' + (isUser ? ' user-content' : '') + (useMarkdown ? '' : ' is-plain');
+  const contentEl = h('div', {
+    class: contentClass,
+    'data-msg-id': m.id,
+  });
+  if (useMarkdown) {
+    contentEl.innerHTML = renderMarkdown(m.content);
+  } else {
+    contentEl.appendChild(document.createTextNode(m.content));
+    if (isAnimating) contentEl.appendChild(h('span', { class: 'typing-cursor' }));
+  }
+
+  return h('div', { class: 'bubble' },
+    h('div', { class: 'avatar' }, icon(isUser ? 'user' : 'microscope')),
+    h('div', { class: 'bubble-body' }, header, contentEl),
+  );
+}
+
+function renderInput() {
+  const placeholder = state.currentCaseId ? '問我關於這個 case 的任何問題...' : '請先從上方選擇 case...';
+  const ta = h('textarea', {
+    class: 'input-ta', rows: 1, placeholder,
+    disabled: state.isBusy || null,
+    onInput: e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; },
+    onKeydown: e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const v = e.target.value.trim();
+        if (!v) return;
+        e.target.value = '';
+        e.target.style.height = 'auto';
+        sendMessage(v);
+      }
+    },
+  });
+
+  const sendBtn = h('button', {
+    class: 'send-btn',
+    disabled: state.isBusy || null,
+    onClick: () => {
+      const v = ta.value.trim();
+      if (!v) return;
+      ta.value = '';
+      ta.style.height = 'auto';
+      sendMessage(v);
+    },
+  }, icon('send'));
+
+  return h('div', { class: 'input-area' },
+    h('div', { class: 'input-inner' },
+      h('div', { class: 'input-box' }, ta, sendBtn),
+    ),
+  );
+}
+
+/* ─────────── Knowledge page ─────────── */
+let knState = { content: '', original: '', loading: true, saving: false, justSaved: false };
+
+function renderKnowledge() {
+  const dirty = knState.content !== knState.original;
+  let btnClass = 'save-btn';
+  let btnText = '儲存';
+  let btnIcon = 'save';
+  if (knState.justSaved) { btnClass += ' saved'; btnText = '已儲存'; btnIcon = 'check'; }
+  else if (dirty)        { btnClass += ' dirty'; }
+  if (knState.saving)    { btnText = '儲存中...'; }
+
+  const ta = h('textarea', {
+    class: 'kn-ta', spellcheck: 'false',
+    placeholder: '在這裡用 markdown 寫下你的領域知識、判斷規則、經驗法則...',
+    onInput: e => { knState.content = e.target.value; render(); },
+  });
+  ta.value = knState.content;
+
+  return h('div', { class: 'content' },
+    h('div', { class: 'content-inner' },
+      h('div', { class: 'kn-head' },
+        h('div', { class: 'kn-avatar' }, icon('book-open', 'icon icon-lg')),
+        h('div', { style: { flex: '1', minWidth: 0 } },
+          h('h2', { class: 'kn-title', text: 'Knowledge' }),
+          h('p', { class: 'kn-sub', html: '切換到 <span class="hi">+ Knowledge</span> 模式時，這裡的內容會被加入 AI 的 system prompt。' }),
+        ),
+        h('button', {
+          class: btnClass,
+          disabled: (!dirty || knState.saving) || null,
+          onClick: saveKnowledge,
+        }, icon(btnIcon), btnText),
+      ),
+      knState.loading
+        ? h('div', { class: 'kn-loading', text: '載入中...' })
+        : ta,
+      h('p', { class: 'kn-foot', html: '檔案：<code>data/knowledge.md</code> · 支援 markdown 格式' }),
+    ),
+  );
+}
+
+async function saveKnowledge() {
+  knState.saving = true; render();
+  try {
+    await api.putKnowledge(knState.content);
+    knState.original = knState.content;
+    knState.justSaved = true;
+    setTimeout(() => { knState.justSaved = false; render(); }, 2000);
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+  } finally {
+    knState.saving = false; render();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *                           Actions
+ * ════════════════════════════════════════════════════════════════ */
+function setView(v) {
+  state.view = v;
+  render();
+  if (v === 'knowledge' && knState.loading) {
+    api.getKnowledge().then(c => {
+      knState = { content: c, original: c, loading: false, saving: false, justSaved: false };
+      render();
+    }).catch(() => {
+      knState = { content: '', original: '', loading: false, saving: false, justSaved: false };
+      render();
+    });
+  }
+}
+
+async function loadCases() {
+  try { state.cases = await api.listCases(); render(); } catch {}
+}
+
+async function loadSessions() {
+  try { state.sessions = await api.listSessions(); render(); } catch {}
+}
+
+async function newChat() {
+  state.currentSessionId = null;
+  state.currentCaseId = null;
+  state.messages = [];
+  state.loadedFiles = [];
+  state.matchedGroups = [];
+  state.view = 'chat';
+  render();
+  loadCases();
+}
+
+async function openSession(id) {
+  try {
+    const s = await api.getSession(id);
+    state.currentSessionId = s.id;
+    state.currentCaseId = s.case_id;
+    state.messages = s.messages || [];
+    // 還原最近一則 assistant 訊息帶的 loaded / groups（若有）
+    const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.loaded));
+    state.loadedFiles = lastAssistant?.loaded || [];
+    state.matchedGroups = lastAssistant?.groups || [];
+    state.view = 'chat';
+    render();
+    scrollChatToBottom();
+  } catch (e) { alert('開啟對話失敗：' + e.message); }
+}
+
+async function deleteSession(id) {
+  try {
+    await api.deleteSession(id);
+    if (state.currentSessionId === id) {
+      state.currentSessionId = null;
+      state.currentCaseId = null;
+      state.messages = [];
+      state.loadedFiles = [];
+      state.matchedGroups = [];
+    }
+    loadSessions();
+  } catch (e) { alert('刪除失敗：' + e.message); }
+}
+
+async function pickCase(caseId) {
+  let sid = state.currentSessionId;
+  if (!sid) {
+    sid = (await api.createSession()).id;
+    state.currentSessionId = sid;
+    loadSessions();
+  }
+  await api.patchSession(sid, { case_id: caseId });
+  const info = state.cases.find(c => c.id === caseId);
+  state.currentCaseId = caseId;
+  state.messages.push({
+    id: uid(), role: 'assistant', mode: state.mode,
+    content: `已選定 ${info ? info.title : caseId}。你可以開始問我關於這個 case 的問題。`,
+  });
+  render();
+  scrollChatToBottom();
+}
+
+async function sendMessage(text) {
+  if (state.isBusy || !text.trim()) return;
+
+  // 新 chat 要先建 session
+  if (!state.currentSessionId) {
+    try {
+      state.currentSessionId = (await api.createSession()).id;
+    } catch (e) { alert('建立對話失敗：' + e.message); return; }
+  }
+  const sid = state.currentSessionId;
+  const mode = state.mode;
+
+  // 加 user + assistant(空) 兩則
+  const aid = uid();
+  state.messages.push({ id: uid(), role: 'user', content: text, mode });
+  state.messages.push({ id: aid, role: 'assistant', content: '', mode });
+  state.isBusy = true;
+  render();
+  scrollChatToBottom();
+
+  let full;
+  try {
+    const res = await api.chat(sid, text, mode);
+    full = res.content ?? '';
+    // 更新 Canvas：這次後端載了哪些檔、命中哪些 group
+    state.loadedFiles = Array.isArray(res.loaded) ? res.loaded : [];
+    state.matchedGroups = Array.isArray(res.groups) ? res.groups : [];
+    // 把 loaded/groups 掛到該則 assistant 訊息（前端 state）
+    const assistantMsg = state.messages.find(m => m.id === aid);
+    if (assistantMsg) {
+      assistantMsg.loaded = state.loadedFiles;
+      assistantMsg.groups = state.matchedGroups;
+    }
+  } catch (e) {
+    const msg = state.messages.find(m => m.id === aid);
+    if (msg) msg.content = '（錯誤：' + e.message + '）';
+    state.isBusy = false;
+    render();
+    return;
+  }
+
+  // 打字機動畫
+  state.animatingId = aid;
+  const msg = state.messages.find(m => m.id === aid);
+  render();  // render 一次讓 cursor 出來（Canvas 也在這時更新）
+  scrollChatToBottom();
+
+  let i = 0;
+  const contentEl = document.querySelector(`[data-msg-id="${aid}"]`);
+  const cursorEl = contentEl && contentEl.querySelector('.typing-cursor');
+
+  const timer = setInterval(() => {
+    if (i >= full.length) {
+      clearInterval(timer);
+      msg.content = full;
+      state.isBusy = false;
+      state.animatingId = null;
+      render();
+      loadSessions();  // 側邊欄 session 標題/msg count 要更新
+      scrollChatToBottom();
+      return;
+    }
+    i = Math.min(i + TYPEWRITER_CHARS, full.length);
+    msg.content = full.slice(0, i);
+    // 局部更新：只改這一則 bubble 的文字，不 re-render（不然會打斷使用者輸入）
+    if (contentEl) {
+      // 先清空 text node（保留 cursor）再 set
+      while (contentEl.firstChild && contentEl.firstChild !== cursorEl) {
+        contentEl.removeChild(contentEl.firstChild);
+      }
+      contentEl.insertBefore(document.createTextNode(msg.content), cursorEl || null);
+    }
+    scrollChatToBottom();
+  }, TYPEWRITER_MS);
+}
+
+function scrollChatToBottom() {
+  const el = document.getElementById('chat-bottom');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+/* ════════════════════════════════════════════════════════════════
+ *                           Init
+ * ════════════════════════════════════════════════════════════════ */
+render();
+Promise.all([api.listCases(), api.listSessions()]).then(([cases, sessions]) => {
+  state.cases = cases;
+  state.sessions = sessions;
+  render();
+}).catch(e => console.error('init load failed', e));
+</script>
+</body>
 </html>

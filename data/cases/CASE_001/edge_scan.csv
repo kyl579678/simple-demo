@@ -1,0 +1,9 @@
+wafer_id,zone,total_particles,peak_angle_deg,peak_density_per_cm2,signature
+W01,edge_3mm,37,0,0.84,cluster-4-angle
+W02,edge_3mm,50,0,1.12,cluster-4-angle
+W03,edge_3mm,43,180,0.97,cluster-4-angle
+W05,edge_3mm,59,0,1.33,cluster-4-angle
+W10,edge_3mm,69,0,1.55,cluster-4-angle
+W15,edge_3mm,68,0,1.53,cluster-4-angle
+W20,edge_3mm,83,0,1.87,cluster-4-angle
+W25,edge_3mm,91,0,2.05,cluster-4-angle

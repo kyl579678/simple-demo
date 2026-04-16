@@ -1,0 +1,22 @@
+{
+  "recipe_name": "EDGE_SCAN_v3",
+  "version": "3.1",
+  "last_modified": "2025-09-18",
+  "scan_mode": "dark_field",
+  "scan_resolution_um": 0.15,
+  "min_particle_size_um": 0.12,
+  "coverage": {
+    "radius_start_mm": 146,
+    "radius_end_mm": 149.5,
+    "angle_resolution_deg": 5
+  },
+  "wafer_handling": {
+    "loader": "Robot-Arm-R1",
+    "end_effector": "EE-vacuum-pad-v2",
+    "grip_points_deg": [0, 90, 180, 270]
+  },
+  "thresholds": {
+    "alarm_per_wafer": 20,
+    "spec_per_wafer": 10
+  }
+}
