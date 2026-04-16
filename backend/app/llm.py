@@ -3,11 +3,17 @@
 🔀 切換 provider：編輯 backend/.env 的 LLM_PROVIDER，重啟 backend 即可。
     LLM_PROVIDER=minimax   →  MiniMax 雲端
     LLM_PROVIDER=openai    →  OpenAI 正牌（需 OPENAI_API_KEY）
-    LLM_PROVIDER=local     →  本地 LLM 服務（vLLM / Ollama / LM Studio 等，OpenAI-compatible）
+    LLM_PROVIDER=local     →  本地 / 區網內 OpenAI-compatible 服務
+                              （vLLM / Ollama / LM Studio / 內部跳板 proxy 等）
+
+⚠️ 一律使用 non-streaming（stream=False）：
+    - 前端打字機動畫是純客戶端效果，後端不需要串流
+    - non-streaming 是所有 OpenAI-compatible API 的最低公約數
+    - 就算某些跳板 proxy 不支援 SSE，這裡也能相容
 """
 
 from __future__ import annotations
-import os
+import os, re
 from openai import AsyncOpenAI
 
 
@@ -21,10 +27,12 @@ def _get_client() -> tuple[AsyncOpenAI, str]:
         return AsyncOpenAI(api_key=key, base_url=base + "/v1"), os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     if provider == "local":
-        # 本地 OpenAI-compatible 服務（例: vLLM / Ollama / LM Studio）
-        # 大多不需真 API key，填任意字串即可；base 例: http://localhost:8000/v1
+        # 本地 / 區網內 OpenAI-compatible 服務。
+        # base 例："http://192.168.x.x:8000/v1"（請直接填到 /v1 結尾）
+        # 若 proxy 自己處理 token / 不驗 key，隨便填個字串即可（openai SDK 一定會送 Authorization header）
         base = os.getenv("LOCAL_API_BASE", "http://localhost:8000/v1")
         key = os.getenv("LOCAL_API_KEY", "") or "EMPTY"
+        # model 欄位：即使 proxy 會忽略，openai SDK 還是要求一定要送，這裡就送環境變數或預設
         return AsyncOpenAI(api_key=key, base_url=base), os.getenv("LOCAL_MODEL", "gpt-oss-120b")
 
     # MiniMax (default)
@@ -34,52 +42,29 @@ def _get_client() -> tuple[AsyncOpenAI, str]:
     return AsyncOpenAI(api_key=key, base_url=base + "/v1"), os.getenv("MINIMAX_MODEL", "MiniMax-M2.7-highspeed")
 
 
-async def chat_complete(messages: list[dict], max_tokens: int = 4096) -> str:
-    """取得完整回應字串，過濾掉 <think>...</think>（reasoning 模型會吐）。
+# 抓閉合的 <think>...</think>；DOTALL 讓 . 也可以 match newline
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 
-    內部仍用 stream=True 收集，純粹是為了好做 <think> 過濾；
-    串流呈現已移到前端用打字機動畫模擬。
+
+def _strip_think(content: str) -> str:
+    """過濾 <think>...</think> 區段（reasoning 模型會吐 CoT）。
+
+    處理三種狀況：
+    1. 閉合的 <think>...</think>：直接刪掉
+    2. 未閉合（開頭有 <think> 但沒 </think>，極少見）：從 <think> 開始截到結尾全丟
+    3. 沒有 think 標籤：原文返回
     """
+    content = _THINK_BLOCK_RE.sub("", content)
+    if "<think>" in content:
+        content = content[:content.find("<think>")]
+    return content.strip()
+
+
+async def chat_complete(messages: list[dict], max_tokens: int = 4096) -> str:
+    """呼叫 LLM、取得完整回應字串、過濾 <think>、回傳。"""
     client, model = _get_client()
-    stream = await client.chat.completions.create(
-        model=model, messages=messages, max_tokens=max_tokens, stream=True,
+    resp = await client.chat.completions.create(
+        model=model, messages=messages, max_tokens=max_tokens, stream=False,
     )
-
-    parts: list[str] = []
-    in_think = False
-    pending = ""
-    OPEN, CLOSE = "<think>", "</think>"
-
-    async for chunk in stream:
-        if not chunk.choices: continue
-        delta = chunk.choices[0].delta
-        if not delta or not delta.content: continue
-        pending += delta.content
-
-        while True:
-            if in_think:
-                idx = pending.find(CLOSE)
-                if idx >= 0:
-                    pending = pending[idx + len(CLOSE):]
-                    in_think = False
-                    continue
-                keep = len(CLOSE) - 1
-                pending = pending[-keep:] if len(pending) > keep else pending
-                break
-            else:
-                idx = pending.find(OPEN)
-                if idx >= 0:
-                    if idx > 0: parts.append(pending[:idx])
-                    pending = pending[idx + len(OPEN):]
-                    in_think = True
-                    continue
-                keep = len(OPEN) - 1
-                if len(pending) > keep:
-                    parts.append(pending[:-keep])
-                    pending = pending[-keep:]
-                break
-
-    if not in_think and pending:
-        parts.append(pending)
-
-    return "".join(parts)
+    content = resp.choices[0].message.content or ""
+    return _strip_think(content)
