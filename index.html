@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Doctor</title>
+<title>iDoctor DEMO</title>
 <style>
   /* ═══════════════ Design tokens（仿 DefectAiDoctor 原版色票） ═══════════════ */
   :root {
@@ -246,16 +246,17 @@
   .case-empty-hint code { background: transparent; font-weight: 600; }
 
   /* ═══════════════ Suggestion chips ═══════════════ */
-  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; margin-left: 38px; }
+  .suggestions { display: flex; flex-direction: column; gap: 8px; padding: 8px 0 4px; margin-left: 38px; }
   button.suggestion-chip {
-    font-size: 13px; padding: 8px 14px !important; border-radius: 18px;
-    background: var(--paper-raised); border: 1px solid var(--line) !important;
-    color: var(--ink-muted); cursor: pointer; transition: all 0.15s;
-    line-height: 1.4;
+    font-size: 13px; padding: 10px 16px !important; border-radius: 12px;
+    background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.25) !important;
+    color: var(--accent-dark); cursor: pointer; transition: all 0.15s;
+    line-height: 1.4; text-align: left; width: fit-content; max-width: 100%;
   }
   .suggestion-chip:hover {
-    border-color: var(--accent); color: var(--accent);
-    background: rgba(59, 130, 246, 0.05); transform: translateY(-1px);
+    border-color: var(--accent) !important; color: var(--accent-dark);
+    background: rgba(59, 130, 246, 0.12); transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
   }
 
   .case-btn {
@@ -711,7 +712,7 @@ function renderHeader() {
   const caseInfo = state.cases.find(c => c.id === state.currentCaseId);
 
   return h('header', { class: 'header' },
-    h('h1', { class: 'header-title', text: 'AI Doctor' }),
+    h('h1', { class: 'header-title', text: 'iDoctor DEMO' }),
     state.currentCaseId && h('div', { class: 'case-chip' },
       h('span', { class: 'case-chip-id', text: state.currentCaseId }),
       caseInfo && h('span', { class: 'case-chip-title', text: '· ' + caseInfo.title }),
@@ -904,7 +905,7 @@ function renderCaseSelector() {
   return h('div', {},
     h('div', { class: 'case-selector-header' },
       h('div', { class: 'avatar' }, icon('folder-open')),
-      h('span', { class: 'case-selector-title', text: 'AI Doctor' }),
+      h('span', { class: 'case-selector-title', text: 'iDoctor' }),
     ),
     body,
   );
@@ -915,7 +916,7 @@ function renderBubble(m) {
   const isAnimating = state.animatingId === m.id;
 
   const header = h('div', { class: 'bubble-header' },
-    h('p', { class: 'bubble-name', text: isUser ? 'You' : 'AI Doctor' }),
+    h('p', { class: 'bubble-name', text: isUser ? 'You' : 'iDoctor' }),
     !isUser && m.mode && h('span', {
       class: 'mode-badge' + (m.mode === 'knowledge' ? ' knowledge' : ''),
     },
@@ -1176,7 +1177,7 @@ async function pickCase(caseId) {
     content: `已選定 ${info ? info.title : caseId}。`,
   });
   state.suggestions = [
-    { text: '請先告訴我這個case的基本資訊以及查案總結' },
+    { text: '基本資訊 & 查案總結' },
   ];
   render();
   scrollChatToBottom();
