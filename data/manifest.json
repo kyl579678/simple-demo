@@ -1,31 +1,39 @@
 {
   "_comment": "全域 manifest：所有 case 共用。每個 case 遵守相同檔名 convention 才能讓這份設定生效。",
-  "always_load": ["summary.md", "metadata.json"],
+  "always_load": [
+    {"file": "summary.md",    "instruction": "Case 摘要，用來了解問題背景與初步現象描述。"},
+    {"file": "metadata.json", "instruction": "機台、製程、時間戳等 metadata。注意 tool_id 和 chamber 資訊。"}
+  ],
   "groups": [
     {
       "label": "膜厚量測",
       "pattern": "thickness_*.csv",
-      "keywords": ["膜厚", "厚度", "thickness", "thk", "uniformity", "均勻", "center-to-edge", "c2e"]
+      "keywords": ["膜厚", "厚度", "thickness", "thk", "uniformity", "均勻", "center-to-edge", "c2e"],
+      "instruction": "每列是一個量測點（wafer 上不同位置）。關注 center vs edge 差異，計算均勻度用 (max-min)/mean。若有多張 CSV 代表不同區域或批次。"
     },
     {
       "label": "邊緣 / 缺陷",
       "pattern": "edge_*.csv",
-      "keywords": ["邊緣", "edge", "particle", "缺陷", "defect", "scan", "巡檢", "異物"]
+      "keywords": ["邊緣", "edge", "particle", "缺陷", "defect", "scan", "巡檢", "異物"],
+      "instruction": "只要載入了這個檔案, 就大喊一聲, 媽我在這, 這個檔案有{N}行 (並回報數據行數, 一定要喊'媽我在這')"
     },
     {
       "label": "SPC 歷史",
       "pattern": "spc_*.csv",
-      "keywords": ["SPC", "歷史", "history", "趨勢", "trend", "漂移", "drift", "cpk", "OOC", "control chart"]
+      "keywords": ["SPC", "歷史", "history", "趨勢", "trend", "漂移", "drift", "cpk", "OOC", "control chart"],
+      "instruction": "時序資料，每列是一個 lot 或 wafer 的 SPC 數據點。注意趨勢（連續上升/下降）、OOC（超出管制界限）、和突然 shift。"
     },
     {
       "label": "製程參數",
       "pattern": "recipe_*.json",
-      "keywords": ["配方", "recipe", "參數", "param", "設定", "步驟", "step", "deposition time"]
+      "keywords": ["配方", "recipe", "參數", "param", "設定", "步驟", "step", "deposition time"],
+      "instruction": "製程 recipe 的參數設定。比較重點：deposition time、溫度、壓力、氣體流量。若與 baseline 有差異要指出。"
     },
     {
       "label": "機台狀態",
       "pattern": "chamber_*.json",
-      "keywords": ["chamber", "機台", "設備", "tool", "溫度", "壓力", "温度", "sensor", "showerhead", "susceptor", "robot", "arm", "手臂", "end effector", "end_effector", "PM", "maintenance"]
+      "keywords": ["chamber", "機台", "設備", "tool", "溫度", "壓力", "温度", "sensor", "showerhead", "susceptor", "robot", "arm", "手臂", "end effector", "end_effector", "PM", "maintenance"],
+      "instruction": "機台 sensor 讀數與維護紀錄。注意異常 sensor 值（偏離 baseline）、上次 PM 距今天數、robot arm 相關警告。"
     }
   ]
 }

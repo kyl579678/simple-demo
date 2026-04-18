@@ -68,3 +68,87 @@ async def chat_complete(messages: list[dict], max_tokens: int = 4096) -> str:
     )
     content = resp.choices[0].message.content or ""
     return _strip_think(content)
+
+
+async def route_groups(
+    query: str,
+    groups: list[dict],
+    knowledge: str = "",
+    history: list[dict] | None = None,
+) -> tuple[list[str], str]:
+    """Plan 階段：用 LLM 判斷需要載入哪些 file groups。
+
+    接收完整 context（knowledge + 對話歷史 + 當前問題），讓 routing
+    能根據領域規則和前幾輪對話脈絡做出正確判斷。
+
+    回傳 (命中的 group label 列表, LLM 的思考過程原文)。
+    """
+    if not groups:
+        return [], ""
+
+    group_desc = "\n".join(
+        f"- {g['label']}（pattern: {g.get('pattern','')}）"
+        for g in groups
+    )
+
+    system_parts = [
+        "你是資料分析流程中的 Plan 角色。你的任務是根據使用者的問題，決定需要載入哪些資料檔案 group。",
+        "",
+        "# 可用的資料 groups",
+        group_desc,
+    ]
+
+    if knowledge:
+        system_parts += [
+            "",
+            "# 領域知識（判斷準則）",
+            "以下是領域專家提供的知識。請根據這些規則判斷需要哪些資料。"
+            "例如：若規則提到「A 現象要看 B 資料」，使用者問到 A 時，就應該載入 B 對應的 group。",
+            "",
+            knowledge,
+        ]
+
+    system_parts += [
+        "",
+        "# 回覆格式",
+        "1. 先用 1-2 句話說明你的判斷理由（參考了什麼規則、對話脈絡中提到什麼）",
+        "2. 最後一行輸出需要載入的 group label，用 JSON array 格式",
+        '   例如 ["膜厚量測", "SPC 歷史"]',
+        "- 如果都不需要，JSON 回 []",
+        "- 如果問題很模糊（例如「分析一下」「怎麼了」），回傳所有 group",
+    ]
+
+    messages: list[dict] = [{"role": "system", "content": "\n".join(system_parts)}]
+
+    # 帶入對話歷史（讓 routing 知道前幾輪在討論什麼）
+    for m in (history or []):
+        if m.get("role") in ("user", "assistant"):
+            messages.append({"role": m["role"], "content": m.get("content", "")})
+
+    messages.append({"role": "user", "content": query})
+
+    client, model = _get_client()
+    resp = await client.chat.completions.create(
+        model=model, messages=messages, max_tokens=300, stream=False,
+    )
+
+    raw = _strip_think(resp.choices[0].message.content or "").strip()
+    reasoning = raw
+
+    # 從回應中提取 JSON array
+    import json, re
+    labels: list[str] = []
+    matches = re.findall(r'\[.*?\]', raw, re.DOTALL)
+    for m in reversed(matches):
+        try:
+            result = json.loads(m)
+            if isinstance(result, list):
+                labels = [str(x) for x in result]
+                break
+        except Exception:
+            continue
+    # fallback: parse 失敗 → 回傳全部 group
+    if not labels and groups:
+        labels = [g["label"] for g in groups]
+
+    return labels, reasoning

@@ -14,7 +14,7 @@ Endpoints:
 """
 
 from __future__ import annotations
-import csv, fnmatch, io, json, uuid
+import csv, fnmatch, io, json, time, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from app.llm import chat_complete
+from app.llm import chat_complete, route_groups
 
 # ─────────────────────────── 路徑 & 環境變數 ───────────────────────────
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -82,7 +82,7 @@ def list_cases() -> list[dict]:
     return cases
 
 
-CSV_MAX_ROWS = 20
+CSV_MAX_ROWS = 500
 
 
 def _read_file_for_prompt(f: Path) -> str:
@@ -157,16 +157,15 @@ def _read_manifest() -> dict | None:
         return None
 
 
-def load_case_for_query(case_id: str, query: str) -> tuple[str, list[dict], list[str]] | None:
-    """依照 case 的 manifest.json（若有）挑出要載給 LLM 的檔。
+def load_case_for_query(case_id: str, matched_labels: list[str]) -> tuple[str, list[dict], list[str]] | None:
+    """依照 manifest + LLM routing 結果挑出要載的檔。
+
+    Args:
+        case_id: case 資料夾名稱
+        matched_labels: LLM routing 回傳的 group labels（空 = 只載 always_load）
 
     Returns:
         (prompt_text, canvas_files, matched_group_labels) 或 None（case 不存在）
-        - prompt_text: 要塞進 system prompt 的 case 段落（含 file index + loaded 檔內容）
-        - canvas_files: [{name, content}]，給前端 Canvas 顯示
-        - matched_group_labels: 哪些 group 被命中（給前端小 chip 用）
-
-    沒 manifest.json → fallback：全檔載入、沒命中 group。
     """
     case_dir = CASES_DIR / case_id
     if not case_dir.exists() or not case_dir.is_dir():
@@ -175,29 +174,37 @@ def load_case_for_query(case_id: str, query: str) -> tuple[str, list[dict], list
     all_files = sorted(f for f in case_dir.iterdir() if f.is_file())
     manifest = _read_manifest()
 
-    # ── 決定要載哪些檔 ──
-    matched_labels: list[str] = []
+    # file_instructions: filename → instruction string (for prompt injection)
+    file_instructions: dict[str, str] = {}
+
     if manifest is None:
         selected = list(all_files)
     else:
         selected_set: dict[str, Path] = {}  # 用 dict 保留順序 + 去重
-        # always_load
-        for name in manifest.get("always_load", []) or []:
+        # always_load（支援新格式 [{file, instruction}] 和舊格式 [str]）
+        for item in manifest.get("always_load", []) or []:
+            if isinstance(item, str):
+                name, instr = item, None
+            else:
+                name, instr = item.get("file", ""), item.get("instruction")
             p = case_dir / name
             if p.is_file():
                 selected_set[p.name] = p
-        # groups: keyword 命中 → 展開 pattern
-        q_lower = (query or "").lower()
+                if instr:
+                    file_instructions[p.name] = instr
+        # groups: 用 LLM routing 回傳的 labels 決定要載哪些
         for g in manifest.get("groups", []) or []:
-            kws = g.get("keywords", []) or []
-            if not any(kw and kw.lower() in q_lower for kw in kws):
+            label = g.get("label") or g.get("pattern") or "(unnamed)"
+            if label not in matched_labels:
                 continue
-            matched_labels.append(g.get("label") or g.get("pattern") or "(unnamed)")
             pattern = g.get("pattern") or ""
+            instr = g.get("instruction")
             if pattern:
                 for f in all_files:
                     if fnmatch.fnmatch(f.name, pattern):
                         selected_set[f.name] = f
+                        if instr:
+                            file_instructions[f.name] = instr
         selected = list(selected_set.values())
 
     # ── 組 prompt 文字 ──
@@ -210,7 +217,10 @@ def load_case_for_query(case_id: str, query: str) -> tuple[str, list[dict], list
         for f in all_files:
             parts.append(f"- {f.name}")
     else:
-        always = set(manifest.get("always_load", []) or [])
+        always_raw = manifest.get("always_load", []) or []
+        always: set[str] = set(
+            (item.get("file", "") if isinstance(item, dict) else item) for item in always_raw
+        )
         groups = manifest.get("groups", []) or []
         classified: set[str] = set(always)
         for f in all_files:
@@ -246,6 +256,9 @@ def load_case_for_query(case_id: str, query: str) -> tuple[str, list[dict], list
         parts.append("\n\n## 本輪載入的檔案內容")
         for f in selected:
             parts.append(f"\n### File: {f.name}\n")
+            instr = file_instructions.get(f.name)
+            if instr:
+                parts.append(f"> 解讀指引：{instr}\n")
             parts.append(_read_file_for_prompt(f))
     else:
         parts.append("\n\n_(本輪無檔案載入。若使用者問到特定資料，請引導他提到相關關鍵字。)_")
@@ -257,19 +270,35 @@ def load_case_for_query(case_id: str, query: str) -> tuple[str, list[dict], list
 
 
 # ─────────────────────────────── Prompt ───────────────────────────────
-PURE_SYSTEM = "你是一個資料分析助手。使用者會給你一個 case 的檔案內容，請根據資料回答問題。\n\n回答要求：用中文；引用資料時指出來自哪個檔案；資料不足時誠實說明。"
+PURE_SYSTEM = """你是資料分析流程中的 Analyze 角色。
+系統已根據使用者的問題，自動載入了相關的 case 資料檔案。
 
-KNOWLEDGE_SYSTEM = """你是一個資料分析助手。使用者會給你一個 case 的檔案內容，請根據資料以及下方領域知識回答問題。
+你的任務：
+1. 根據載入的資料回答使用者的問題
+2. 解讀數據，指出異常或關鍵發現
+3. 給出下一步建議（例如：建議檢查什麼、載入哪些其他資料）
 
-# 領域知識
+回答要求：用中文；引用資料時指出來自哪個檔案；資料不足時誠實說明。"""
+
+KNOWLEDGE_SYSTEM = """你是資料分析流程中的 Analyze 角色。
+系統已根據使用者的問題和領域知識，自動載入了相關的 case 資料檔案。
+
+# 領域知識（判斷準則）
 {knowledge}
 
-# 回答要求
-用中文；引用資料時指出來自哪個檔案；應用知識時可引用知識內容支持判斷；資料不足時誠實說明。"""
+你的任務：
+1. 根據載入的資料和上方的領域知識回答使用者的問題
+2. 運用領域知識中的規則來解讀數據、判斷異常
+3. 給出下一步建議（例如：建議檢查什麼、載入哪些其他資料）
+
+回答要求：用中文；引用資料時指出來自哪個檔案；應用知識時引用規則支持判斷；資料不足時誠實說明。"""
 
 
-def build_messages(mode: str, case_id: str | None, history: list[dict], user_message: str) -> tuple[list[dict], list[dict], list[str]]:
-    """Returns (messages_for_llm, canvas_files, matched_groups)."""
+def build_messages(mode: str, case_id: str | None, history: list[dict], user_message: str,
+                    matched_labels: list[str] | None = None) -> tuple[list[dict], list[dict], list[str]]:
+    """Returns (messages_for_llm, canvas_files, matched_groups).
+    matched_labels: LLM routing 回傳的 group labels（None = 無 case 或無 manifest）。
+    """
     if mode == "knowledge":
         kn = (KNOWLEDGE_FILE.read_text(encoding="utf-8") if KNOWLEDGE_FILE.exists() else "").strip() or "_(尚未填寫)_"
         system = KNOWLEDGE_SYSTEM.format(knowledge=kn)
@@ -278,7 +307,7 @@ def build_messages(mode: str, case_id: str | None, history: list[dict], user_mes
     canvas_files: list[dict] = []
     matched_groups: list[str] = []
     if case_id:
-        result = load_case_for_query(case_id, user_message)
+        result = load_case_for_query(case_id, matched_labels or [])
         if result:
             case_text, canvas_files, matched_groups = result
             system += "\n\n# 目前討論的 Case 資料\n\n" + case_text
@@ -415,8 +444,28 @@ async def api_chat(body: ChatRequest):
         raise HTTPException(404, "session not found")
 
     _append_msg(body.session_id, "user", body.message, body.mode)
+
+    # Step 1: Plan（LLM routing）— 帶 knowledge + history 決定要載哪些 file groups
+    matched_labels: list[str] = []
+    routing_reasoning: str = ""
+    case_id = session.get("case_id")
+    manifest = _read_manifest()
+    history = session.get("messages", [])
+    knowledge = ""
+    if body.mode == "knowledge" and KNOWLEDGE_FILE.exists():
+        knowledge = KNOWLEDGE_FILE.read_text(encoding="utf-8").strip()
+    t0 = time.monotonic()
+    if case_id and manifest and manifest.get("groups"):
+        matched_labels, routing_reasoning = await route_groups(
+            body.message, manifest["groups"],
+            knowledge=knowledge, history=history,
+        )
+    route_ms = int((time.monotonic() - t0) * 1000)
+
+    # Step 2: Load + 組 Analyze messages（用 routing 結果載入對應檔案）
     messages, canvas_files, matched_groups = build_messages(
-        body.mode, session.get("case_id"), session.get("messages", []), body.message,
+        body.mode, case_id, history, body.message,
+        matched_labels=matched_labels,
     )
 
     try:
@@ -424,8 +473,15 @@ async def api_chat(body: ChatRequest):
     except Exception as e:
         raise HTTPException(500, f"LLM error: {e}")
 
+    thinking = {
+        "routed_groups": matched_groups,
+        "loaded_files": [f["name"] for f in canvas_files],
+        "route_time_ms": route_ms,
+        "reasoning": routing_reasoning,
+    }
+
     _append_msg(
         body.session_id, "assistant", content, body.mode,
         loaded=canvas_files, groups=matched_groups,
     )
-    return {"content": content, "loaded": canvas_files, "groups": matched_groups}
+    return {"content": content, "loaded": canvas_files, "groups": matched_groups, "thinking": thinking}

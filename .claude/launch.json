@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "C:\\Users\\LIN\\Anaconda3\\python.exe",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "5488", "--reload", "--reload-dir", "app"],
       "cwd": "backend",
       "port": 5488
