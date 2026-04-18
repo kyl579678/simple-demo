@@ -14,14 +14,15 @@ Endpoints:
 """
 
 from __future__ import annotations
-import csv, fnmatch, io, json, time, uuid
+import base64, csv, fnmatch, hashlib, io, json, re, time, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import markdown as md_lib
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.llm import chat_complete, route_groups
@@ -83,6 +84,24 @@ def list_cases() -> list[dict]:
 
 
 CSV_MAX_ROWS = 500
+_image_cache: dict[str, tuple[bytes, str]] = {}   # {hash: (raw_bytes, mime_type)}
+
+
+def _strip_base64_images(text: str) -> str:
+    """移除 Markdown / HTML 嵌入的 base64 圖片，替換成佔位文字（省 token）。"""
+    # ![alt](data:image/...;base64,...)
+    text = re.sub(
+        r'!\[([^\]]*)\]\(data:image/[^;]+;base64,[A-Za-z0-9+/=\s]+\)',
+        r'[圖片: \1]',
+        text,
+    )
+    # <img src="data:image/...;base64,...">
+    text = re.sub(
+        r'<img\s[^>]*src=["\']data:image/[^;]+;base64,[A-Za-z0-9+/=\s]+["\'][^>]*/?>',
+        '[圖片]',
+        text,
+    )
+    return text
 
 
 def _read_file_for_prompt(f: Path) -> str:
@@ -91,7 +110,7 @@ def _read_file_for_prompt(f: Path) -> str:
     ext = f.suffix.lower()
     try:
         if ext == ".md":
-            return f.read_text(encoding="utf-8")
+            return _strip_base64_images(f.read_text(encoding="utf-8"))
         if ext == ".json":
             text = f.read_text(encoding="utf-8")
             try:
@@ -120,12 +139,36 @@ def _read_file_for_prompt(f: Path) -> str:
         return f"_(讀取失敗: {e})_"
 
 
+def _extract_base64_images(text: str) -> str:
+    """把 base64 data URI 存入記憶體 cache，替換成 /api/images/{key} URL。"""
+    def _replace(m):
+        data_uri = m.group(0)
+        uri_match = re.match(r'data:image/(\w+);base64,([A-Za-z0-9+/=\s]+)', data_uri)
+        if not uri_match:
+            return data_uri
+        ext = uri_match.group(1)
+        b64 = uri_match.group(2).replace('\n', '').replace(' ', '')
+        key = hashlib.md5(b64.encode()).hexdigest()[:12] + '.' + ext
+        if key not in _image_cache:
+            _image_cache[key] = (base64.b64decode(b64), f'image/{ext}')
+        return f'/api/images/{key}'
+    return re.sub(r'data:image/\w+;base64,[A-Za-z0-9+/=\s]+', _replace, text)
+
+
+def _md_to_html(text: str) -> str:
+    """Markdown → HTML（含 base64 圖片抽檔）。"""
+    text = _extract_base64_images(text)
+    return md_lib.markdown(text, extensions=['tables', 'fenced_code'])
+
+
 def _read_file_for_canvas(f: Path) -> str:
-    """讀檔給 Canvas 顯示（前端會按 extension 各自渲染）。
-    md / json 回原文；csv 回截短版本（跟 LLM 看的一致）；其他 raw text。"""
+    """讀檔給 Canvas 顯示。
+    md → 轉 HTML（後端處理完）；json 回原文；csv 回截短版本；其他 raw text。"""
     ext = f.suffix.lower()
     try:
-        if ext in (".md", ".json"):
+        if ext == ".md":
+            return _md_to_html(f.read_text(encoding="utf-8"))
+        if ext == ".json":
             return f.read_text(encoding="utf-8")
         if ext == ".csv":
             text = f.read_text(encoding="utf-8", errors="replace")
@@ -278,7 +321,15 @@ PURE_SYSTEM = """你是資料分析流程中的 Analyze 角色。
 2. 解讀數據，指出異常或關鍵發現
 3. 給出下一步建議（例如：建議檢查什麼、載入哪些其他資料）
 
-回答要求：用中文；引用資料時指出來自哪個檔案；資料不足時誠實說明。"""
+回答要求：用中文；引用資料時指出來自哪個檔案；資料不足時誠實說明。
+
+# 查案推薦（可選）
+如果你在分析過程中發現有值得進一步追查的方向——例如需要交叉比對其他資料、某個異常值得深入、或有尚未載入的檔案可能提供關鍵線索——你可以在回答最末尾用以下格式推薦：
+<!--SUGGESTIONS:["具體的追查問題1","具體的追查問題2"]-->
+注意：
+- 這不是必須的。如果你的回答已經完整、或沒有明確的下一步方向，就不要附加。
+- SUGGESTIONS 就是你表達「下一步建議」的方式。不要在回答內文中另外用文字列出建議清單，否則會重複。
+- 推薦應該是你分析判斷的自然延伸，不是泛泛的建議。"""
 
 KNOWLEDGE_SYSTEM = """你是資料分析流程中的 Analyze 角色。
 系統已根據使用者的問題和領域知識，自動載入了相關的 case 資料檔案。
@@ -291,7 +342,31 @@ KNOWLEDGE_SYSTEM = """你是資料分析流程中的 Analyze 角色。
 2. 運用領域知識中的規則來解讀數據、判斷異常
 3. 給出下一步建議（例如：建議檢查什麼、載入哪些其他資料）
 
-回答要求：用中文；引用資料時指出來自哪個檔案；應用知識時引用規則支持判斷；資料不足時誠實說明。"""
+回答要求：用中文；引用資料時指出來自哪個檔案；應用知識時引用規則支持判斷；資料不足時誠實說明。
+
+# 查案推薦（可選）
+如果你在分析過程中發現有值得進一步追查的方向——例如需要交叉比對其他資料、某個異常值得深入、或有尚未載入的檔案可能提供關鍵線索——你可以在回答最末尾用以下格式推薦：
+<!--SUGGESTIONS:["具體的追查問題1","具體的追查問題2"]-->
+注意：
+- 這不是必須的。如果你的回答已經完整、或沒有明確的下一步方向，就不要附加。
+- SUGGESTIONS 就是你表達「下一步建議」的方式。不要在回答內文中另外用文字列出建議清單，否則會重複。
+- 推薦應該是你分析判斷的自然延伸，不是泛泛的建議。"""
+
+
+def _extract_suggestions(text: str) -> tuple[str, list[str]]:
+    """從 LLM 回應中抽出 <!--SUGGESTIONS:[...]-->，回傳 (clean_content, suggestions)。"""
+    m = re.search(r'<!--\s*SUGGESTIONS\s*:\s*(\[.*?\])\s*-->', text, re.DOTALL)
+    if not m:
+        return text.strip(), []
+    try:
+        suggestions = json.loads(m.group(1))
+        if not isinstance(suggestions, list):
+            suggestions = []
+        suggestions = [str(s) for s in suggestions if s]
+    except Exception:
+        suggestions = []
+    clean = text[:m.start()].rstrip()
+    return clean, suggestions
 
 
 def build_messages(mode: str, case_id: str | None, history: list[dict], user_message: str,
@@ -329,6 +404,15 @@ app = FastAPI(title="simple_demo backend")
 @app.get("/")
 def serve_index():
     return FileResponse(INDEX_HTML)
+
+
+# ── Images（從 .md 抽出的 base64 圖片，記憶體 cache） ──
+@app.get("/api/images/{key}")
+def api_image(key: str):
+    entry = _image_cache.get(key)
+    if not entry:
+        raise HTTPException(404, "image not found")
+    return Response(content=entry[0], media_type=entry[1])
 
 
 # ── Cases ──
@@ -469,9 +553,12 @@ async def api_chat(body: ChatRequest):
     )
 
     try:
-        content = await chat_complete(messages)
+        raw_content = await chat_complete(messages)
     except Exception as e:
         raise HTTPException(500, f"LLM error: {e}")
+
+    # 從回應中抽出 LLM 推薦的下一步問題
+    content, suggestions = _extract_suggestions(raw_content)
 
     thinking = {
         "routed_groups": matched_groups,
@@ -484,4 +571,7 @@ async def api_chat(body: ChatRequest):
         body.session_id, "assistant", content, body.mode,
         loaded=canvas_files, groups=matched_groups,
     )
-    return {"content": content, "loaded": canvas_files, "groups": matched_groups, "thinking": thinking}
+    return {
+        "content": content, "loaded": canvas_files, "groups": matched_groups,
+        "thinking": thinking, "suggestions": suggestions,
+    }

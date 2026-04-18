@@ -59,9 +59,24 @@
   /* Chat / Canvas split（header 下方） */
   .split-view { flex: 1; display: flex; min-height: 0; }
   .chat-col   { flex: 3; display: flex; flex-direction: column; min-width: 0; }
-  .canvas-col { flex: 2; min-width: 320px; display: flex; flex-direction: column;
+  .canvas-col { min-width: 280px; display: flex; flex-direction: column;
                 border-left: 1px solid var(--line); background: var(--paper-raised);
                 min-height: 0; overflow: hidden; }
+
+  /* 拖曳分隔線 */
+  .split-handle {
+    width: 5px; cursor: col-resize; background: transparent;
+    flex-shrink: 0; position: relative; z-index: 5;
+    transition: background 0.15s;
+  }
+  .split-handle:hover, .split-handle.dragging { background: var(--accent); }
+  .split-handle::after {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 3px; height: 32px; border-radius: 2px;
+    background: var(--line-strong); transition: background 0.15s;
+  }
+  .split-handle:hover::after, .split-handle.dragging::after { background: var(--accent); }
 
   .canvas-header {
     height: 44px; padding: 0 16px; display: flex; align-items: center; gap: 8px;
@@ -104,11 +119,14 @@
   .file-card.collapsed .file-card-chevron { transform: rotate(-90deg); }
   .file-card-chevron { transition: transform 0.15s; }
   .file-card-head { cursor: pointer; }
-  .file-card-body { padding: 10px 12px; font-size: 12px; max-height: 400px; overflow-y: auto; }
+  .file-card-body { padding: 10px 12px; font-size: 12px; max-height: 800px; overflow-y: auto; }
   .file-card-body pre {
     margin: 0; white-space: pre-wrap; word-break: break-word;
     font-family: "JetBrains Mono", "Consolas", monospace; font-size: 12px; line-height: 1.6;
     color: var(--ink);
+  }
+  .file-card-body img, .msg-bubble img {
+    max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: block;
   }
   .file-card-body .md-md-root { line-height: 1.6; font-size: 13px; }
   .file-card-body .md-md-root h1 { font-size: 16px; }
@@ -215,7 +233,7 @@
 
   /* ═══════════════ Content area ═══════════════ */
   .content { flex: 1; overflow-y: auto; background: var(--paper); }
-  .content-inner { max-width: 768px; margin: 0 auto; padding: 24px; }
+  .content-inner { max-width: 768px; margin: 0; padding: 24px 24px 24px 16px; }
 
   /* ═══════════════ Case selector ═══════════════ */
   .case-selector-header { display: flex; align-items: center; gap: 10px; }
@@ -226,6 +244,19 @@
 
   .case-empty-hint { font-size: 13px; color: var(--ink-subtle); background: var(--paper-muted); border-radius: 8px; padding: 12px; line-height: 1.6; }
   .case-empty-hint code { background: transparent; font-weight: 600; }
+
+  /* ═══════════════ Suggestion chips ═══════════════ */
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 4px; margin-left: 38px; }
+  button.suggestion-chip {
+    font-size: 13px; padding: 8px 14px !important; border-radius: 18px;
+    background: var(--paper-raised); border: 1px solid var(--line) !important;
+    color: var(--ink-muted); cursor: pointer; transition: all 0.15s;
+    line-height: 1.4;
+  }
+  .suggestion-chip:hover {
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(59, 130, 246, 0.05); transform: translateY(-1px);
+  }
 
   .case-btn {
     display: block; width: 100%; text-align: left;
@@ -442,6 +473,7 @@ const state = {
   matchedGroups: [],      // 上一次命中的 manifest groups（顯示 chip 用）
   thinkingPhase: null,    // null | 'routing' | 'done'
   thinkingData: null,     // { routed_groups, loaded_files, route_time_ms }
+  suggestions: [],        // 推薦下一步按鈕 [{text}]
 };
 
 const uid = () => 'tmp_' + Math.random().toString(36).slice(2, 10);
@@ -731,14 +763,59 @@ function renderChat() {
       showSelector ? renderCaseSelector() : null,
       ...items,
       showDots ? h('div', { class: 'dots' }, h('span'), h('span'), h('span')) : null,
+      !state.isBusy && state.suggestions.length > 0 ? renderSuggestions() : null,
       h('div', { id: 'chat-bottom' }),
     ),
   );
 
   const chatCol = h('div', { class: 'chat-col' }, content, renderInput());
   const canvas = state.canvasOpen ? renderCanvas() : null;
+  const handle = state.canvasOpen ? buildSplitHandle() : null;
 
-  return h('div', { class: 'split-view' }, chatCol, canvas);
+  return h('div', { class: 'split-view' }, chatCol, handle, canvas);
+}
+
+/* ─────────── Suggestion Chips ─────────── */
+function renderSuggestions() {
+  return h('div', { class: 'suggestions' },
+    ...state.suggestions.map(s =>
+      h('button', {
+        class: 'suggestion-chip', text: s.text,
+        onClick: () => { state.suggestions = []; sendMessage(s.text); },
+      })
+    ),
+  );
+}
+
+/* ─────────── Split Handle（拖曳分隔線） ─────────── */
+function buildSplitHandle() {
+  const handle = h('div', { class: 'split-handle' });
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const view = handle.parentElement;
+    const canvas = view.querySelector('.canvas-col');
+    if (!view || !canvas) return;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      const viewRect = view.getBoundingClientRect();
+      const canvasW = viewRect.right - ev.clientX;
+      const clamped = Math.max(280, Math.min(canvasW, viewRect.width * 0.6));
+      canvas.style.width = clamped + 'px';
+      canvas.style.flex = 'none';
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  return handle;
 }
 
 /* ─────────── Canvas ─────────── */
@@ -771,9 +848,10 @@ function renderFileCard(f) {
 
   const body = h('div', { class: 'file-card-body' });
   if (ext === 'md') {
+    // 後端已用 python-markdown 轉成 HTML，直接渲染
     const wrap = document.createElement('div');
     wrap.className = 'md-md-root';
-    wrap.innerHTML = renderMarkdown(f.content || '');
+    wrap.innerHTML = f.content || '';
     body.appendChild(wrap);
   } else if (ext === 'json') {
     let pretty = f.content || '';
@@ -1095,8 +1173,11 @@ async function pickCase(caseId) {
   state.currentCaseId = caseId;
   state.messages.push({
     id: uid(), role: 'assistant', mode: state.mode,
-    content: `已選定 ${info ? info.title : caseId}。你可以開始問我關於這個 case 的問題。`,
+    content: `已選定 ${info ? info.title : caseId}。`,
   });
+  state.suggestions = [
+    { text: '請先告訴我這個case的基本資訊以及查案總結' },
+  ];
   render();
   scrollChatToBottom();
 }
@@ -1113,9 +1194,10 @@ async function sendMessage(text) {
   const sid = state.currentSessionId;
   const mode = state.mode;
 
-  // 清空 Canvas（當輪重新載入）
+  // 清空 Canvas 和推薦
   state.loadedFiles = [];
   state.matchedGroups = [];
+  state.suggestions = [];
 
   // 加 user bubble（assistant 先不加，等 thinking 完再加）
   const aid = uid();
@@ -1135,6 +1217,9 @@ async function sendMessage(text) {
     // 更新 Canvas
     state.loadedFiles = Array.isArray(res.loaded) ? res.loaded : [];
     state.matchedGroups = Array.isArray(res.groups) ? res.groups : [];
+    // 暫存 LLM 推薦問題（打字機動畫結束後顯示）
+    state._pendingSuggestions = Array.isArray(res.suggestions)
+      ? res.suggestions.map(s => ({ text: s })) : [];
     // Phase 2: routing 完成，顯示摘要
     state.thinkingData = res.thinking || null;
     state.thinkingPhase = 'done';
@@ -1169,8 +1254,11 @@ async function sendMessage(text) {
       msg.content = full;
       state.isBusy = false;
       state.animatingId = null;
+      state.suggestions = state._pendingSuggestions || [];
       if (contentEl) contentEl.innerHTML = renderMarkdown(full);
+      render();
       loadSessions();
+      scrollChatToBottom();
       return;
     }
     i = Math.min(i + TYPEWRITER_CHARS, full.length);

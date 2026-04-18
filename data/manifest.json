@@ -34,6 +34,12 @@
       "pattern": "chamber_*.json",
       "keywords": ["chamber", "機台", "設備", "tool", "溫度", "壓力", "温度", "sensor", "showerhead", "susceptor", "robot", "arm", "手臂", "end effector", "end_effector", "PM", "maintenance"],
       "instruction": "機台 sensor 讀數與維護紀錄。注意異常 sensor 值（偏離 baseline）、上次 PM 距今天數、robot arm 相關警告。"
+    },
+    {
+      "label": "分析報告",
+      "pattern": "analysis_*.md",
+      "keywords": ["報告", "report", "分析", "analysis", "總結", "summary report", "圖表", "chart", "熱圖", "heatmap"],
+      "instruction": "工程師產出的分析報告，含圖表與數據摘要。注意：圖片已被系統移除（標記為 [圖片: ...]），請根據文字描述與數據表格進行分析。"
     }
   ]
 }

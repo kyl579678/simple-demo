@@ -115,7 +115,7 @@ async def route_groups(
         "2. 最後一行輸出需要載入的 group label，用 JSON array 格式",
         '   例如 ["膜厚量測", "SPC 歷史"]',
         "- 如果都不需要，JSON 回 []",
-        "- 如果問題很模糊（例如「分析一下」「怎麼了」），回傳所有 group",
+        "- 如果問題很模糊或泛泛而談（例如「分析一下」「怎麼了」「幫我看看」），也回 []。系統會用 always_load 的基本資料回答，不需要額外載入",
     ]
 
     messages: list[dict] = [{"role": "system", "content": "\n".join(system_parts)}]
@@ -147,8 +147,8 @@ async def route_groups(
                 break
         except Exception:
             continue
-    # fallback: parse 失敗 → 回傳全部 group
-    if not labels and groups:
-        labels = [g["label"] for g in groups]
+    # fallback: parse 失敗 → 回空（只用 always_load），不要載全部
+    if not labels:
+        labels = []
 
     return labels, reasoning
