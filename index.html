@@ -873,7 +873,7 @@ function renderCanvas() {
 
   const header = h('div', { class: 'canvas-header' },
     icon('folder-open'),
-    h('span', { text: '載入檔案' }),
+    h('span', { text: '分析資料' }),
     h('span', { class: 'canvas-header-count', text: '(' + files.length + ')' }),
     h('div', { class: 'canvas-header-groups' },
       ...groups.map(g => h('span', { class: 'canvas-group-chip', text: g })),
@@ -883,7 +883,7 @@ function renderCanvas() {
   let body;
   if (files.length === 0) {
     body = h('div', { class: 'canvas-empty', html:
-      '尚無載入檔案。<br>選定 case 並發問後，<br>系統實際讀到的檔案會顯示在這裡。' });
+      '尚無分析資料。<br>選定 case 並發問後，<br>系統載入的資料會顯示在這裡。' });
   } else {
     body = h('div', { class: 'canvas-body' }, ...files.map(renderFileCard));
   }
@@ -996,7 +996,7 @@ function renderThinkingBar(data, phase) {
   if (phase === 'routing') {
     return h('div', { class: 'thinking-bar' },
       h('div', { class: 'thinking-spinner' }),
-      h('span', { class: 'thinking-summary', text: '正在分析需要哪些資料...' }),
+      h('span', { class: 'thinking-summary', text: '正在理解問題...' }),
     );
   }
   if (!data) return null;
@@ -1025,7 +1025,7 @@ function renderThinkingBar(data, phase) {
   }
   detailChildren.push(
     h('div', { html: '<strong>載入分類：</strong>' + ((data.routed_groups || []).join('、') || '(無)') }),
-    h('div', { html: '<strong>載入檔案：</strong>' + ((data.loaded_files || []).join('、') || '(無)') }),
+    h('div', { html: '<strong>載入資料：</strong>' + ((data.loaded_files || []).join('、') || '(無)') }),
     h('div', { html: '<strong>耗時：</strong>' + timeS + 's' }),
   );
   const detail = h('div', { class: 'thinking-detail' }, ...detailChildren);
