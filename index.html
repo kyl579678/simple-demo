@@ -797,9 +797,9 @@ function renderChat() {
     }
     items.push(renderBubble(m));
   }
-  // 正在 routing 中 → 在最後面加 loading thinking bar
-  if (state.thinkingPhase === 'routing') {
-    items.push(renderThinkingBar(null, 'routing'));
+  // 正在 routing / analyzing 中 → 在最後面加 loading thinking bar
+  if (state.thinkingPhase === 'routing' || state.thinkingPhase === 'analyzing') {
+    items.push(renderThinkingBar(null, state.thinkingPhase));
   }
   // routing 完成、等主 LLM → 顯示已完成的 thinking bar + dots
   if (state.thinkingPhase === 'done' && state.thinkingData) {
@@ -993,10 +993,11 @@ function renderBubble(m) {
 
 function renderThinkingBar(data, phase) {
   // phase: 'routing' (loading) | 'done' (collapsible)
-  if (phase === 'routing') {
+  if (phase === 'routing' || phase === 'analyzing') {
+    const text = phase === 'routing' ? '正在理解問題...' : '正在分析...';
     return h('div', { class: 'thinking-bar' },
       h('div', { class: 'thinking-spinner' }),
-      h('span', { class: 'thinking-summary', text: '正在理解問題...' }),
+      h('span', { class: 'thinking-summary', text }),
     );
   }
   if (!data) return null;
@@ -1267,11 +1268,19 @@ async function sendMessage(text) {
   state.messages.push({ id: uid(), role: 'user', content: text, mode });
   state.isBusy = true;
 
-  // Phase 1: 顯示「正在分析...」
+  // Phase 1: 顯示「正在理解問題...」
   state.thinkingPhase = 'routing';
   state.thinkingData = null;
   render();
   scrollChatToBottom();
+
+  // 3 秒後切換到「正在分析...」
+  const phaseTimer = setTimeout(() => {
+    if (state.thinkingPhase === 'routing') {
+      state.thinkingPhase = 'analyzing';
+      render();
+    }
+  }, 3000);
 
   let full;
   try {
@@ -1284,6 +1293,7 @@ async function sendMessage(text) {
     state._pendingSuggestions = Array.isArray(res.suggestions)
       ? res.suggestions.map(s => ({ text: s })) : [];
     // Phase 2: routing 完成，顯示摘要
+    clearTimeout(phaseTimer);
     state.thinkingData = res.thinking || null;
     state.thinkingPhase = 'done';
     // 加 assistant bubble（帶 thinking data）
