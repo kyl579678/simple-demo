@@ -59,7 +59,7 @@
   /* Chat / Canvas split（header 下方） */
   .split-view { flex: 1; display: flex; min-height: 0; }
   .chat-col   { flex: 3; display: flex; flex-direction: column; min-width: 0; }
-  .canvas-col { min-width: 280px; display: flex; flex-direction: column;
+  .canvas-col { width: 650px; flex: none; min-width: 280px; display: flex; flex-direction: column;
                 border-left: 1px solid var(--line); background: var(--paper-raised);
                 min-height: 0; overflow: hidden; }
 
@@ -126,7 +126,19 @@
     color: var(--ink);
   }
   .file-card-body img, .msg-bubble img {
-    max-width: 100%; height: auto; border-radius: 4px; margin: 8px 0; display: block;
+    max-width: 650px; max-height: 200px; height: auto; width: auto;
+    object-fit: contain; border-radius: 4px; margin: 8px 0;
+    display: block; cursor: pointer;
+  }
+  .img-lightbox {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.8); z-index: 999;
+    display: flex; align-items: center; justify-content: center;
+    cursor: zoom-out;
+  }
+  .img-lightbox img {
+    max-width: 90vw; max-height: 90vh; object-fit: contain;
+    border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.4);
   }
   .file-card-body .md-md-root { line-height: 1.6; font-size: 13px; }
   .file-card-body .md-md-root h1 { font-size: 16px; }
@@ -233,7 +245,7 @@
 
   /* ═══════════════ Content area ═══════════════ */
   .content { flex: 1; overflow-y: auto; background: var(--paper); }
-  .content-inner { max-width: 768px; margin: 0; padding: 24px 24px 24px 16px; }
+  .content-inner { max-width: 900px; margin: 0 auto; padding: 24px 30px; }
 
   /* ═══════════════ Case selector ═══════════════ */
   .case-selector-header { display: flex; align-items: center; gap: 10px; }
@@ -375,8 +387,8 @@
   .thinking-detail strong { color: var(--ink-muted); font-weight: 600; }
 
   /* ═══════════════ Input ═══════════════ */
-  .input-area { border-top: 1px solid var(--line); padding: 16px; background: var(--paper); }
-  .input-inner { max-width: 768px; margin: 0 auto; }
+  .input-area { border-top: 1px solid var(--line); padding: 16px 0; background: var(--paper); }
+  .input-inner { max-width: 900px; margin: 0 auto; padding: 0 60px; }
   .input-box {
     display: flex; align-items: flex-end; gap: 8px;
     background: var(--paper-raised); border: 1px solid var(--line); border-radius: 12px;
@@ -470,6 +482,7 @@ const state = {
   messages: [],
   isBusy: false,          // 等後端 OR 打字機動畫中
   animatingId: null,      // 目前正在打字機動畫的訊息 id
+  _typewriterTimer: null, // setInterval ID（供清除用）
   loadedFiles: [],        // Canvas 要顯示的檔案 [{name, content}]
   matchedGroups: [],      // 上一次命中的 manifest groups（顯示 chip 用）
   thinkingPhase: null,    // null | 'routing' | 'done'
@@ -611,15 +624,45 @@ function renderMarkdown(src) {
  * ════════════════════════════════════════════════════════════════ */
 function render() {
   const app = document.getElementById('app');
-  // 保存 chat scroll position（全量 DOM 替換會歸零）
+  // 保存 chat scroll position
   const chatContent = app.querySelector('.content');
-  const savedScroll = chatContent ? chatContent.scrollTop : 0;
+  const savedChatScroll = chatContent ? chatContent.scrollTop : 0;
+  // 保存 Canvas 狀態（哪些卡片展開、scroll 位置）
+  const canvasBody = app.querySelector('.canvas-body');
+  const savedCanvasScroll = canvasBody ? canvasBody.scrollTop : 0;
+  const expandedCards = new Set();
+  app.querySelectorAll('.file-card:not(.collapsed)').forEach(c => {
+    const name = c.querySelector('.file-card-name')?.textContent;
+    if (name) expandedCards.add(name);
+  });
+  // 保存 Canvas 寬度（拖曳過的）
+  const canvasCol = app.querySelector('.canvas-col');
+  const savedCanvasWidth = canvasCol?.style.width || '';
+
   app.innerHTML = '';
   app.append(renderSidebar(), renderMain());
-  // 還原 scroll position
+
+  // 還原 chat scroll
   const newChatContent = app.querySelector('.content');
-  if (newChatContent && savedScroll > 0) {
-    newChatContent.scrollTop = savedScroll;
+  if (newChatContent && savedChatScroll > 0) {
+    newChatContent.scrollTop = savedChatScroll;
+  }
+  // 還原 Canvas 卡片展開狀態
+  if (expandedCards.size > 0) {
+    app.querySelectorAll('.file-card').forEach(c => {
+      const name = c.querySelector('.file-card-name')?.textContent;
+      if (name && expandedCards.has(name)) c.classList.remove('collapsed');
+    });
+  }
+  // 還原 Canvas scroll
+  const newCanvasBody = app.querySelector('.canvas-body');
+  if (newCanvasBody && savedCanvasScroll > 0) {
+    newCanvasBody.scrollTop = savedCanvasScroll;
+  }
+  // 還原 Canvas 拖曳寬度
+  if (savedCanvasWidth) {
+    const newCanvas = app.querySelector('.canvas-col');
+    if (newCanvas) { newCanvas.style.width = savedCanvasWidth; newCanvas.style.flex = 'none'; }
   }
 }
 
@@ -651,14 +694,19 @@ function renderSidebar() {
       ),
       h('div', { class: 'sessions-wrap' },
         h('div', { class: 'sessions-label' }, 'Recent'),
-        state.sessions.length === 0
-          ? h('div', { class: 'sessions-empty', html: '尚無對話紀錄<br>點 New Chat 開始' })
-          : h('div', {}, ...state.sessions.map(renderSessionItem)),
+        renderSessionList(),
       ),
     );
   }
 
   return h('aside', { class: 'sidebar sidebar-full' }, ...children);
+}
+
+function renderSessionList() {
+  if (state.sessions.length === 0) {
+    return h('div', { class: 'session-list sessions-empty', html: '尚無對話紀錄<br>點 New Chat 開始' });
+  }
+  return h('div', { class: 'session-list' }, ...state.sessions.map(renderSessionItem));
 }
 
 function renderSessionItem(s) {
@@ -714,8 +762,7 @@ function renderHeader() {
   return h('header', { class: 'header' },
     h('h1', { class: 'header-title', text: 'iDoctor DEMO' }),
     state.currentCaseId && h('div', { class: 'case-chip' },
-      h('span', { class: 'case-chip-id', text: state.currentCaseId }),
-      caseInfo && h('span', { class: 'case-chip-title', text: '· ' + caseInfo.title }),
+      h('span', { class: 'case-chip-title', text: state.currentCaseId }),
     ),
     h('div', { class: 'spacer' }),
     h('button', {
@@ -1119,20 +1166,33 @@ async function loadSessions() {
   try { state.sessions = await api.listSessions(); render(); } catch {}
 }
 
+async function _stopTypewriter() {
+  if (state._typewriterTimer) {
+    clearInterval(state._typewriterTimer);
+    state._typewriterTimer = null;
+  }
+  state.isBusy = false;
+  state.animatingId = null;
+  state.thinkingPhase = null;
+  state.thinkingData = null;
+  state._pendingSuggestions = [];
+}
+
 async function newChat() {
+  _stopTypewriter();
   state.currentSessionId = null;
   state.currentCaseId = null;
   state.messages = [];
   state.loadedFiles = [];
   state.matchedGroups = [];
-  state.thinkingPhase = null;
-  state.thinkingData = null;
+  state.suggestions = [];
   state.view = 'chat';
   render();
   loadCases();
 }
 
 async function openSession(id) {
+  _stopTypewriter();
   try {
     const s = await api.getSession(id);
     state.currentSessionId = s.id;
@@ -1142,6 +1202,7 @@ async function openSession(id) {
     const lastAssistant = [...state.messages].reverse().find(m => m.role === 'assistant' && Array.isArray(m.loaded));
     state.loadedFiles = lastAssistant?.loaded || [];
     state.matchedGroups = lastAssistant?.groups || [];
+    state.suggestions = [];
     state.view = 'chat';
     render();
     scrollChatToBottom();
@@ -1157,6 +1218,7 @@ async function deleteSession(id) {
       state.messages = [];
       state.loadedFiles = [];
       state.matchedGroups = [];
+      state.suggestions = [];
     }
     loadSessions();
   } catch (e) { alert('刪除失敗：' + e.message); }
@@ -1235,6 +1297,7 @@ async function sendMessage(text) {
     state.isBusy = false;
     state.thinkingPhase = null;
     state.thinkingData = null;
+    state._pendingSuggestions = [];
     render();
     return;
   }
@@ -1249,9 +1312,10 @@ async function sendMessage(text) {
   let i = 0;
   const contentEl = document.querySelector(`[data-msg-id="${aid}"]`);
 
-  const timer = setInterval(() => {
+  state._typewriterTimer = setInterval(() => {
     if (i >= full.length) {
-      clearInterval(timer);
+      clearInterval(state._typewriterTimer);
+      state._typewriterTimer = null;
       msg.content = full;
       state.isBusy = false;
       state.animatingId = null;
@@ -1276,6 +1340,17 @@ function scrollChatToBottom() {
   const el = document.getElementById('chat-bottom');
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
+
+/* ─────────── Lightbox（點擊圖片放大） ─────────── */
+document.addEventListener('click', (e) => {
+  if (e.target.tagName === 'IMG' && e.target.closest('.file-card-body, .msg-bubble')) {
+    const lb = document.createElement('div');
+    lb.className = 'img-lightbox';
+    lb.innerHTML = '<img src="' + e.target.src + '">';
+    lb.addEventListener('click', () => lb.remove());
+    document.body.appendChild(lb);
+  }
+});
 
 /* ════════════════════════════════════════════════════════════════
  *                           Init
