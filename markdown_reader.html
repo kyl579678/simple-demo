@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Markdown Reader</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --panel: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+    --accent: #0ea5e9;
+    --code-bg: #f5f5f4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Microsoft JhengHei", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  header button, header label.filebtn {
+    font-size: 13px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    background: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  header button:hover, header label.filebtn:hover { background: #f5f5f4; }
+  header .filename { font-size: 12px; color: var(--muted); }
+  #drop {
+    position: fixed; inset: 0;
+    background: rgba(14,165,233,.08);
+    border: 3px dashed var(--accent);
+    display: none;
+    align-items: center; justify-content: center;
+    font-size: 18px; color: var(--accent); font-weight: 600;
+    pointer-events: none; z-index: 100;
+  }
+  #drop.active { display: flex; }
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+  #empty {
+    text-align: center;
+    color: var(--muted);
+    margin-top: 120px;
+    font-size: 14px;
+  }
+  #empty .big { font-size: 42px; margin-bottom: 12px; }
+  .md h1, .md h2, .md h3, .md h4 { line-height: 1.3; margin: 1.4em 0 .6em; }
+  .md h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+  .md h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: .25em; }
+  .md h3 { font-size: 1.22em; }
+  .md p { margin: .8em 0; }
+  .md a { color: var(--accent); }
+  .md code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: .92em;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .md pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  .md pre code { background: transparent; padding: 0; }
+  .md blockquote {
+    border-left: 4px solid var(--border);
+    margin: 1em 0;
+    padding: .1em 1em;
+    color: var(--muted);
+  }
+  .md table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+    font-size: .95em;
+  }
+  .md th, .md td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .md th { background: #f5f5f4; }
+  .md img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    cursor: zoom-in;
+    display: block;
+    margin: 1em auto;
+  }
+  .md hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+  .md ul, .md ol { padding-left: 1.6em; }
+  #lightbox {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.85);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 200; cursor: zoom-out;
+  }
+  #lightbox.active { display: flex; }
+  #lightbox img { max-width: 95vw; max-height: 95vh; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📄 Markdown Reader</h1>
+  <span class="filename" id="filename"></span>
+  <span class="spacer"></span>
+  <label class="filebtn">
+    選擇檔案
+    <input type="file" id="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+  </label>
+  <button id="clear">清除</button>
+</header>
+
+<main>
+  <div id="empty">
+    <div class="big">📝</div>
+    <div>拖曳 .md 檔案到這裡，或點右上「選擇檔案」</div>
+  </div>
+  <article id="content" class="md"></article>
+</main>
+
+<div id="drop">放開以載入 .md 檔案</div>
+<div id="lightbox"><img alt="" /></div>
+
+<script>
+/* ---------- Mini Markdown Parser (no deps) ----------
+ * Supports: headings, paragraphs, fenced code, inline code,
+ * bold, italic, links, images (incl. base64 data URIs),
+ * unordered & ordered lists, blockquotes, tables (GFM),
+ * horizontal rules, raw HTML passthrough.
+ * Not a full CommonMark impl — kept small & readable.
+ */
+const MD = (() => {
+  const escapeHtml = (s) =>
+    s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Protect segments from further processing with placeholders.
+  function inline(text) {
+    const saves = [];
+    const save = (html) => {
+      const key = `\u0000${saves.length}\u0000`;
+      saves.push(html); return key;
+    };
+
+    // inline code first (so ** inside code isn't parsed)
+    text = text.replace(/`([^`\n]+)`/g, (_, c) => save(`<code>${escapeHtml(c)}</code>`));
+
+    // images ![alt](src)  — src may contain data: URIs with commas
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, src) =>
+      save(`<img alt="${escapeHtml(alt)}" src="${src.trim()}">`));
+
+    // links [text](href)
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, href) =>
+      save(`<a href="${href.trim()}" target="_blank" rel="noopener">${escapeHtml(t)}</a>`));
+
+    // bold **x** / __x__
+    text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
+
+    // italic *x* / _x_
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    text = text.replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>');
+
+    // restore placeholders
+    text = text.replace(/\u0000(\d+)\u0000/g, (_, i) => saves[+i]);
+    return text;
+  }
+
+  function isHtmlBlockStart(line) {
+    return /^\s*<\/?[a-zA-Z][\w-]*(\s|>|\/>|$)/.test(line);
+  }
+
+  function parseList(lines, i, ordered) {
+    const bullet = ordered ? /^(\s*)(\d+)\.\s+(.*)$/ : /^(\s*)[-*+]\s+(.*)$/;
+    const items = [];
+    while (i < lines.length) {
+      const m = lines[i].match(bullet);
+      if (!m) break;
+      const itemText = [ordered ? m[3] : m[2]];
+      i++;
+      // continuation lines (indented or plain non-empty non-list)
+      while (i < lines.length && lines[i].trim() &&
+             !/^(\s*)[-*+]\s+/.test(lines[i]) &&
+             !/^(\s*)\d+\.\s+/.test(lines[i])) {
+        itemText.push(lines[i].trim());
+        i++;
+      }
+      items.push(inline(itemText.join(' ')));
+      // allow a single blank line between items
+      if (i < lines.length && !lines[i].trim()) {
+        const look = i + 1;
+        if (look < lines.length &&
+            (ordered ? /^\s*\d+\.\s+/.test(lines[look]) : /^\s*[-*+]\s+/.test(lines[look]))) {
+          i++;
+        } else break;
+      }
+    }
+    const tag = ordered ? 'ol' : 'ul';
+    return [`<${tag}>${items.map(x => `<li>${x}</li>`).join('')}</${tag}>`, i];
+  }
+
+  function parseTable(lines, i) {
+    const header = lines[i].trim().replace(/^\||\|$/g, '').split('|').map(s => s.trim());
+    i += 2; // skip header + separator
+    const rows = [];
+    while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim()) {
+      rows.push(lines[i].trim().replace(/^\||\|$/g, '').split('|').map(s => s.trim()));
+      i++;
+    }
+    let html = '<table><thead><tr>';
+    for (const h of header) html += `<th>${inline(h)}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const r of rows) {
+      html += '<tr>';
+      for (const c of r) html += `<td>${inline(c)}</td>`;
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return [html, i];
+  }
+
+  function render(src) {
+    const lines = src.replace(/\r\n?/g, '\n').split('\n');
+    const out = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      if (!line.trim()) { i++; continue; }
+
+      // Fenced code ```lang
+      const fence = line.match(/^```(\w*)\s*$/);
+      if (fence) {
+        const lang = fence[1];
+        const buf = []; i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) {
+          buf.push(lines[i]); i++;
+        }
+        i++; // closing fence
+        out.push(`<pre><code${lang ? ` class="lang-${lang}"` : ''}>${escapeHtml(buf.join('\n'))}</code></pre>`);
+        continue;
+      }
+
+      // Heading  # .. ######
+      const h = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+      if (h) {
+        out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
+        i++; continue;
+      }
+
+      // Horizontal rule
+      if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) {
+        out.push('<hr>'); i++; continue;
+      }
+
+      // Blockquote
+      if (/^\s*>/.test(line)) {
+        const buf = [];
+        while (i < lines.length && /^\s*>/.test(lines[i])) {
+          buf.push(lines[i].replace(/^\s*>\s?/, ''));
+          i++;
+        }
+        out.push(`<blockquote>${render(buf.join('\n'))}</blockquote>`);
+        continue;
+      }
+
+      // GFM table: current line has |, next line is separator
+      if (/\|/.test(line) && i + 1 < lines.length &&
+          /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(lines[i+1])) {
+        const [html, ni] = parseTable(lines, i);
+        out.push(html); i = ni; continue;
+      }
+
+      // Lists
+      if (/^\s*[-*+]\s+/.test(line)) {
+        const [html, ni] = parseList(lines, i, false);
+        out.push(html); i = ni; continue;
+      }
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const [html, ni] = parseList(lines, i, true);
+        out.push(html); i = ni; continue;
+      }
+
+      // Raw HTML block passthrough (e.g., <div>, <img>, <table> with embedded base64)
+      if (isHtmlBlockStart(line)) {
+        const buf = [];
+        while (i < lines.length && lines[i].trim()) {
+          buf.push(lines[i]); i++;
+        }
+        out.push(buf.join('\n'));
+        continue;
+      }
+
+      // Paragraph (gather consecutive non-empty, non-block lines)
+      const buf = [];
+      while (i < lines.length && lines[i].trim()
+             && !/^(#{1,6}\s|```|>\s|\s*[-*+]\s+|\s*\d+\.\s+)/.test(lines[i])
+             && !isHtmlBlockStart(lines[i])) {
+        buf.push(lines[i]); i++;
+      }
+      out.push(`<p>${inline(buf.join('\n'))}</p>`);
+    }
+
+    return out.join('\n');
+  }
+
+  return { render };
+})();
+
+/* ---------- File loading / UI ---------- */
+const fileInput   = document.getElementById('file');
+const clearBtn    = document.getElementById('clear');
+const content     = document.getElementById('content');
+const empty       = document.getElementById('empty');
+const filenameEl  = document.getElementById('filename');
+const drop        = document.getElementById('drop');
+const lightbox    = document.getElementById('lightbox');
+const lightboxImg = lightbox.querySelector('img');
+
+function show(text, name) {
+  content.innerHTML = MD.render(text);
+  empty.style.display = 'none';
+  filenameEl.textContent = name || '';
+}
+
+function readFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => show(e.target.result, file.name);
+  reader.readAsText(file, 'utf-8');
+}
+
+fileInput.addEventListener('change', (e) => readFile(e.target.files[0]));
+
+clearBtn.addEventListener('click', () => {
+  content.innerHTML = '';
+  empty.style.display = '';
+  filenameEl.textContent = '';
+  fileInput.value = '';
+});
+
+let dragDepth = 0;
+window.addEventListener('dragenter', (e) => {
+  e.preventDefault(); dragDepth++; drop.classList.add('active');
+});
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('dragleave', () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) drop.classList.remove('active');
+});
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragDepth = 0; drop.classList.remove('active');
+  const f = e.dataTransfer.files?.[0];
+  if (f) readFile(f);
+});
+
+content.addEventListener('click', (e) => {
+  if (e.target.tagName === 'IMG') {
+    lightboxImg.src = e.target.src;
+    lightbox.classList.add('active');
+  }
+});
+lightbox.addEventListener('click', () => lightbox.classList.remove('active'));
+
+// ?file=xxx.md auto-load (same-origin only; for file:// it must be same folder)
+const urlParam = new URLSearchParams(location.search).get('file');
+if (urlParam) {
+  fetch(urlParam)
+    .then(r => r.ok ? r.text() : Promise.reject(r.status))
+    .then(t => show(t, urlParam))
+    .catch(err => show('> 無法載入 `' + urlParam + '`：' + err, urlParam));
+}
+</script>
+</body>
+</html>
